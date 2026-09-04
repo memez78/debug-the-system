@@ -727,12 +727,15 @@ export class GameEngine {
 
     if (this.phase === "playing") this.updatePlaying(now, dtSec);
     else if (this.phase === "attract") this.updateAttract(now, dtSec);
-    else if (this.phase === "intro") {
-      if (this.cinematic.isDone(now)) this.beginRound();
-    } else if (this.phase === "interlude") {
-      if (this.cinematic.isDone(now)) this.finishInterlude(now);
-    } else if (this.phase === "outro") {
-      if (this.cinematic.isDone(now)) this.finishOutro(now);
+    else if (this.phase === "intro" || this.phase === "interlude" || this.phase === "outro") {
+      // A cinematic holds on each line until the player taps; update() is
+      // only the abandoned-kiosk safety net that eventually moves it on.
+      this.cinematic.update(now);
+      if (this.cinematic.isDone()) {
+        if (this.phase === "intro") this.beginRound();
+        else if (this.phase === "interlude") this.finishInterlude(now);
+        else this.finishOutro(now);
+      }
     } else this.updateResult(now);
 
     this.render(now);

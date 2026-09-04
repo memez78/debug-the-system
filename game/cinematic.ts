@@ -26,10 +26,9 @@ export type CinematicMode = "intro" | "interlude" | "outroWin" | "outroLoss";
  * and the dialogue script both read these, so a shot change can never drift
  * out of sync with the line that's meant to be on screen during it.
  *
- * Pacing note: these are deliberately unhurried. A booth player is reading
- * subtitles for the first time while also taking in the art, so every line
- * gets enough time to be read twice by a slow reader. Everything is
- * tap-skippable for anyone who's already seen it.
+ * These set how quickly each shot plays out, not how long it stays up. Once
+ * a beat reaches its mark the picture holds and waits for a tap, so a slow
+ * reader is never rushed and a fast one is never stuck.
  */
 const T = {
   intro: { closeUpIn: 3.2, closeUpOut: 9.6, viruses: 12.6, end: 17 },
@@ -52,7 +51,15 @@ const SRC = {
 
 type ImgKey = keyof typeof SRC;
 
-/** A timed story beat. `until` is seconds from the start of the sequence. */
+/**
+ * A story beat: one line of dialogue and the shot that goes with it.
+ *
+ * `until` is a position on the sequence timeline, in seconds, marking where
+ * this beat's animation finishes. It is NOT how long the beat stays on
+ * screen — a beat animates up to `until` and then holds there indefinitely,
+ * waiting for the player to tap. So `until` sets how *fast* a shot plays,
+ * never how long the player gets to read.
+ */
 interface Beat {
   until: number;
   caption?: string;
@@ -95,22 +102,27 @@ const SCRIPT: Record<CinematicMode, Beat[]> = {
   ],
 };
 
-/** Each sequence runs exactly as long as its last beat. */
-const DURATION_MS: Record<CinematicMode, number> = Object.fromEntries(
-  (Object.keys(SCRIPT) as CinematicMode[]).map((m) => [m, SCRIPT[m][SCRIPT[m].length - 1].until * 1000]),
-) as Record<CinematicMode, number>;
-
 function loadImg(src: string): HTMLImageElement {
   const img = new Image();
   img.src = src;
   return img;
 }
 
+/**
+ * A beat nobody taps through eventually moves on by itself. This is not
+ * pacing — it is the abandoned-kiosk safety net, set far longer than anyone
+ * reading a single line would ever take, so the booth can never be left
+ * stuck on a half-finished scene for the next student who walks up.
+ */
+const IDLE_ADVANCE_SEC = 45;
+
 export class Cinematic {
   private images: Record<ImgKey, HTMLImageElement>;
   private mode: CinematicMode | null = null;
-  private startedAt = 0;
-  private skipped = false;
+  /** Which line is on screen. Only a tap (or the idle net) moves this on. */
+  private beatIndex = 0;
+  private beatStartedAt = 0;
+  private finished = false;
 
   constructor() {
     this.images = Object.fromEntries(Object.entries(SRC).map(([k, v]) => [k, loadImg(v)])) as Record<
@@ -121,41 +133,41 @@ export class Cinematic {
 
   start(mode: CinematicMode, now: number): void {
     this.mode = mode;
-    this.startedAt = now;
-    this.skipped = false;
+    this.beatIndex = 0;
+    this.beatStartedAt = now;
+    this.finished = false;
   }
 
-  /**
-   * Player tapped: cut to the start of the next beat, or end the sequence if
-   * this was the last one.
-   *
-   * It works by warping the clock forward rather than tracking a separate
-   * beat index, because every visual in here is driven off that same clock —
-   * so the art cuts to the next shot along with the line, instead of the
-   * subtitle running ahead of a picture still playing the previous beat.
-   *
-   * Beats still time out on their own if nobody taps, so an abandoned kiosk
-   * always finds its way back to the attract screen.
-   */
+  private beats(): Beat[] {
+    return this.mode ? SCRIPT[this.mode] : [];
+  }
+
+  /** Seconds the current line has been on screen. Never stops climbing. */
+  private beatAge(now: number): number {
+    return (now - this.beatStartedAt) / 1000;
+  }
+
+  /** Where the current beat begins on the sequence timeline, in seconds. */
+  private beatStart(): number {
+    return this.beatIndex === 0 ? 0 : this.beats()[this.beatIndex - 1].until;
+  }
+
+  /** Player tapped: move to the next line, or end the sequence if that was
+   * the last one. */
   advance(now: number): void {
-    if (!this.mode) return;
-    const beats = SCRIPT[this.mode];
-    const clock = (now - this.startedAt) / 1000;
-    const current = beats.find((b) => clock < b.until);
-    if (!current) {
-      this.skipped = true;
-      return;
-    }
-    this.startedAt = now - current.until * 1000;
+    if (!this.mode || this.finished) return;
+    this.beatIndex += 1;
+    this.beatStartedAt = now;
+    if (this.beatIndex >= this.beats().length) this.finished = true;
   }
 
-  private durationMs(): number {
-    return this.mode ? DURATION_MS[this.mode] : 0;
+  update(now: number): void {
+    if (!this.mode || this.finished) return;
+    if (this.beatAge(now) >= IDLE_ADVANCE_SEC) this.advance(now);
   }
 
-  isDone(now: number): boolean {
-    if (!this.mode) return true;
-    return this.skipped || now - this.startedAt >= this.durationMs();
+  isDone(): boolean {
+    return !this.mode || this.finished;
   }
 
   private draw(ctx: CanvasRenderingContext2D, key: ImgKey, cx: number, cy: number, height: number, alpha = 1): void {
@@ -168,25 +180,42 @@ export class Cinematic {
     ctx.restore();
   }
 
+  /**
+   * Two clocks drive every scene, and the difference between them is what
+   * makes a held shot look alive instead of frozen:
+   *
+   *  - `staged` walks through this beat's slice of the timeline and then
+   *    STOPS at the end of it. Shot changes, camera moves and entrances all
+   *    read from this, so the picture waits for the player exactly like the
+   *    line does.
+   *  - `anim` never stops. Idle motion — the star field, the robot's hover
+   *    bob, celebration hops — reads from this, so a scene that is waiting
+   *    on a tap still breathes.
+   */
   render(ctx: CanvasRenderingContext2D, now: number, width: number, height: number, mascot: Mascot): void {
-    if (!this.mode) return;
-    const clock = (now - this.startedAt) / 1000;
-    const p = clamp01((now - this.startedAt) / this.durationMs());
+    if (!this.mode || this.finished) return;
+    const beat = this.beats()[this.beatIndex];
+    const age = this.beatAge(now);
+    const anim = this.beatStart() + age;
+    // Held just SHORT of the mark, not on it. A beat owns the half-open
+    // interval [start, until), so landing exactly on `until` would tip the
+    // scene into the next beat's shot while its own line is still up.
+    const staged = Math.min(anim, beat.until - 1e-3);
 
     const bg = ctx.createLinearGradient(0, 0, 0, height);
     bg.addColorStop(0, "#03060c");
     bg.addColorStop(1, "#080f1a");
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, width, height);
-    this.drawStars(ctx, width, height, clock);
+    this.drawStars(ctx, width, height, anim);
 
-    if (this.mode === "intro") this.renderIntro(ctx, clock, width, height, mascot);
-    else if (this.mode === "interlude") this.renderInterlude(ctx, clock, width, height, mascot);
-    else if (this.mode === "outroWin") this.renderWin(ctx, clock, width, height, mascot);
-    else this.renderLoss(ctx, clock, width, height, mascot);
+    if (this.mode === "intro") this.renderIntro(ctx, staged, anim, width, height, mascot);
+    else if (this.mode === "interlude") this.renderInterlude(ctx, staged, anim, width, height, mascot);
+    else if (this.mode === "outroWin") this.renderWin(ctx, staged, anim, width, height, mascot);
+    else this.renderLoss(ctx, staged, anim, width, height, mascot);
 
-    this.drawScript(ctx, clock, width, height);
-    if (p > 0.1) this.drawSkipHint(ctx, width);
+    this.drawScript(ctx, beat, age, width, height);
+    if (age > 0.35) this.drawSkipHint(ctx, width, height, age);
   }
 
   private drawStars(ctx: CanvasRenderingContext2D, width: number, height: number, clock: number): void {
@@ -209,6 +238,7 @@ export class Cinematic {
   private renderIntro(
     ctx: CanvasRenderingContext2D,
     clock: number,
+    anim: number,
     width: number,
     height: number,
     mascot: Mascot,
@@ -218,7 +248,7 @@ export class Cinematic {
     if (closeUp) {
       // CLOSE-UP: robot fills the frame, moon a soft shape far behind
       this.draw(ctx, "moon", width * 0.78, height * 0.3, height * 0.5, 0.35);
-      const bob = Math.sin(clock * 2.2) * 8;
+      const bob = Math.sin(anim * 2.2) * 8;
       mascot.drawPose(ctx, "idle", width * 0.42, height * 0.86 + bob, height * 0.72, 0, "#2effc7");
       return;
     }
@@ -243,7 +273,7 @@ export class Cinematic {
       spots.forEach(([dx, dy, key], i) => {
         const t = clamp01(emerge - i * 0.12);
         if (t <= 0) return;
-        const bob = Math.sin(clock * 3 + i) * 8;
+        const bob = Math.sin(anim * 3 + i) * 8;
         const x = moonX + moonH * dx * lerp(0.5, 1.15, t);
         const y = moonY + moonH * dy * lerp(0.5, 1.1, t) + bob;
         this.draw(ctx, key, x, y, height * 0.15 * lerp(0.6, 1, t), t);
@@ -262,6 +292,7 @@ export class Cinematic {
   private renderInterlude(
     ctx: CanvasRenderingContext2D,
     clock: number,
+    anim: number,
     width: number,
     height: number,
     mascot: Mascot,
@@ -294,13 +325,13 @@ export class Cinematic {
         const t = clamp01(swarm - i * 0.1);
         if (t <= 0) return;
         const x = lerp(fx < 0.5 ? -100 : width + 100, width * fx, easeInOut(t));
-        const y = height * fy + Math.sin(clock * 3 + i) * 10;
+        const y = height * fy + Math.sin(anim * 3 + i) * 10;
         this.draw(ctx, key, x, y, height * 0.17, 0.9);
       });
     }
 
-    const hop = Math.abs(Math.sin(clock * 4.5)) * 22;
-    const pose: SpriteKey = Math.floor(clock * 7) % 2 === 0 ? "celebrateA" : "celebrateB";
+    const hop = Math.abs(Math.sin(anim * 4.5)) * 22;
+    const pose: SpriteKey = Math.floor(anim * 7) % 2 === 0 ? "celebrateA" : "celebrateB";
     mascot.drawPose(ctx, pose, cx, height * 0.78 - hop, height * 0.36, 0, "#ffd23f");
   }
 
@@ -308,6 +339,7 @@ export class Cinematic {
   private renderWin(
     ctx: CanvasRenderingContext2D,
     clock: number,
+    anim: number,
     width: number,
     height: number,
     mascot: Mascot,
@@ -357,8 +389,8 @@ export class Cinematic {
       mascot.drawThruster(ctx, rx, ry, Math.atan2(-0.25, 0.9), 0.95);
       mascot.drawPose(ctx, "reach", rx, ry, robotH, 0.14);
     } else {
-      const hop = Math.abs(Math.sin(clock * 5)) * 18;
-      const pose: SpriteKey = Math.floor(clock * 8) % 2 === 0 ? "celebrateA" : "celebrateB";
+      const hop = Math.abs(Math.sin(anim * 5)) * 18;
+      const pose: SpriteKey = Math.floor(anim * 8) % 2 === 0 ? "celebrateA" : "celebrateB";
       mascot.drawPose(ctx, pose, rx, ry - hop, robotH, 0, "#ffd23f");
     }
   }
@@ -367,6 +399,7 @@ export class Cinematic {
   private renderLoss(
     ctx: CanvasRenderingContext2D,
     clock: number,
+    anim: number,
     width: number,
     height: number,
     mascot: Mascot,
@@ -388,7 +421,7 @@ export class Cinematic {
 
     const vx = lerp(width * 1.2, cx + width * 0.12, easeInOut(lunge));
     const vy = lerp(-height * 0.25, height * 0.34, easeInOut(lunge));
-    this.draw(ctx, lunge > 0.5 ? "virusRedOpen" : "virusRed", vx, vy + Math.sin(clock * 4) * 6, height * 0.32);
+    this.draw(ctx, lunge > 0.5 ? "virusRedOpen" : "virusRed", vx, vy + Math.sin(anim * 4) * 6, height * 0.32);
 
     mascot.drawPose(ctx, "panic", rx, ry, height * 0.28, rot, "#ff4d4d", alpha);
 
@@ -402,22 +435,11 @@ export class Cinematic {
     ctx.restore();
   }
 
-  /** Renders the caption + robot dialogue for whichever beat we're in. */
-  private drawScript(ctx: CanvasRenderingContext2D, clock: number, width: number, height: number): void {
-    if (!this.mode) return;
-    const beats = SCRIPT[this.mode];
-    let beat: Beat | undefined;
-    let startedAt = 0;
-    for (const b of beats) {
-      if (clock < b.until) {
-        beat = b;
-        break;
-      }
-      startedAt = b.until;
-    }
-    if (!beat) return;
-    const age = clock - startedAt;
-    const fade = clamp01(age / 0.25) * clamp01((beat.until - clock) / 0.3);
+  /** Renders the caption + robot dialogue for the beat currently held.
+   * Fades in only — a line stays at full opacity until the player taps it
+   * away, so nothing dims out from under a slow reader. */
+  private drawScript(ctx: CanvasRenderingContext2D, beat: Beat, age: number, width: number, height: number): void {
+    const fade = clamp01(age / 0.25);
 
     if (beat.caption) {
       ctx.save();
@@ -471,13 +493,16 @@ export class Cinematic {
     }
   }
 
-  private drawSkipHint(ctx: CanvasRenderingContext2D, width: number): void {
+  /** The prompt that tells the player the scene is waiting on them. Pulses,
+   * because a static hint on a held frame reads as a stuck game. */
+  private drawSkipHint(ctx: CanvasRenderingContext2D, width: number, height: number, age: number): void {
     ctx.save();
-    ctx.globalAlpha = 0.4;
-    ctx.font = `700 12px ${CANVAS_FONT_STACK}`;
+    ctx.globalAlpha = 0.45 + 0.35 * Math.sin(age * 3.4);
+    ctx.font = `700 13px ${CANVAS_FONT_STACK}`;
     ctx.textAlign = "right";
-    ctx.fillStyle = "#cfe6ff";
-    ctx.fillText("TAP FOR NEXT", width - 22, 26);
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#7dffb3";
+    ctx.fillText("TAP TO CONTINUE  ▸", width - 26, height - 22);
     ctx.restore();
   }
 }
