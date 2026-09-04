@@ -1,0 +1,101 @@
+.wrap {
+  width: 100%;
+}
+
+.wrapCompact {
+  width: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-family: var(--font-geist-mono, monospace);
+}
+
+.scoreNow {
+  font-size: clamp(20px, 3.4vw, 30px);
+  font-weight: 800;
+  color: #7dffb3;
+  text-shadow: 0 0 14px rgba(46, 255, 199, 0.6);
+}
+
+.scoreTarget {
+  font-size: clamp(12px, 1.8vw, 15px);
+  font-weight: 700;
+  color: rgba(255, 210, 63, 0.9);
+  letter-spacing: 0.02em;
+}
+
+.wrapCompact .scoreNow {
+  font-size: clamp(16px, 2.6vw, 22px);
+}
+
+.wrapCompact .scoreTarget {
+  font-size: clamp(10px, 1.4vw, 13px);
+}
+
+.track {
+  position: relative;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  overflow: visible;
+}
+
+.wrapCompact .track {
+  height: 14px;
+}
+
+.fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2effc7, #ffd23f, #ffffff);
+  box-shadow:
+    0 0 18px rgba(46, 255, 199, 0.85),
+    0 0 34px rgba(255, 210, 63, 0.45);
+  transition: width 0.5s ease;
+}
+
+.tick {
+  position: absolute;
+  top: -4px;
+  width: 3px;
+  height: 28px;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.5);
+}
+
+.wrapCompact .tick {
+  top: -3px;
+  height: 20px;
+}
+
+.tickLabel {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 3px;
+  font-family: var(--font-geist-mono, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(230, 255, 245, 0.75);
+  white-space: nowrap;
+}
+
+.wrapCompact .tickLabel {
+  font-size: 9px;
+}
+
+.captionRow {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 14px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: rgba(230, 255, 245, 0.6);
+}

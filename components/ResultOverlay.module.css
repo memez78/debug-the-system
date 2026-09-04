@@ -1,0 +1,97 @@
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  font-family: var(--font-geist-mono, monospace);
+  padding: 16px;
+}
+
+.card {
+  pointer-events: auto;
+  width: min(560px, 92vw);
+  background: rgba(6, 12, 18, 0.86);
+  border: 1px solid rgba(46, 255, 199, 0.35);
+  border-radius: 16px;
+  padding: clamp(20px, 3.6vh, 36px) clamp(20px, 4vw, 40px);
+  text-align: center;
+  box-shadow: 0 0 60px rgba(46, 255, 199, 0.12);
+}
+
+.scoreLabel {
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  color: rgba(230, 255, 245, 0.6);
+}
+
+.score {
+  font-size: clamp(48px, 10vw, 88px);
+  font-weight: 800;
+  color: #ffffff;
+  text-shadow:
+    0 0 22px rgba(46, 255, 199, 0.85),
+    0 0 60px rgba(46, 255, 199, 0.4);
+  line-height: 1.1;
+}
+
+.progressWrap {
+  margin: 18px 0 18px;
+}
+
+.tierMessage {
+  font-size: clamp(20px, 3.6vw, 30px);
+  font-weight: 800;
+  margin-top: 6px;
+}
+
+.tier-bd10 {
+  color: #ffd23f;
+  text-shadow: 0 0 24px rgba(255, 210, 63, 0.85);
+}
+
+.tier-kit {
+  color: #7dffb3;
+  text-shadow: 0 0 18px rgba(125, 255, 179, 0.7);
+}
+
+.tier-sticker {
+  color: #39d6ff;
+  text-shadow: 0 0 16px rgba(57, 214, 255, 0.6);
+}
+
+.tier-none {
+  color: #e6fff5;
+}
+
+.tierSub {
+  margin-top: 6px;
+  font-size: 13px;
+  color: rgba(230, 255, 245, 0.7);
+}
+
+.continueButton {
+  margin-top: 26px;
+  padding: 12px 28px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #050a10;
+  background: #7dffb3;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  animation: blink 1.6s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
