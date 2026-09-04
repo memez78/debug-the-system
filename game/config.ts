@@ -202,6 +202,14 @@ export const CONFIG = {
   /** Fade-out duration, ms. */
   PRIZE_NOTE_FADE_MS: 700,
 
+  // ---- Audio -----------------------------------------------------------------
+  // Every sound is synthesised at runtime (see game/sound.ts) — there are no
+  // audio files to license or load. Press M during play to mute.
+  /** Master output level, 0-1. Kept low: these are square/saw waves, which
+   *  are far harsher per unit of gain than recorded samples, and a booth
+   *  runs this for hours. */
+  SOUND_MASTER_VOLUME: 0.35,
+
   // ---- Engine internals -----------------------------------------------------
   /** Per-frame delta time is clamped to this many ms, so a dropped frame or
    *  a tab returning from background can never cause a catch-up burst. */

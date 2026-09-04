@@ -116,6 +116,23 @@ function loadImg(src: string): HTMLImageElement {
  */
 const IDLE_ADVANCE_SEC = 45;
 
+/**
+ * Which sequences wait for the player and which play themselves.
+ *
+ * The intro is the one place someone is meeting the robot and the premise
+ * for the first time, so it holds on every line and lets them read at their
+ * own pace. Everything after that is a beat in a round already in progress —
+ * a reward, or an ending — and stopping to ask for a tap there kills the
+ * momentum. Those play straight through; a tap still skips ahead for anyone
+ * who has seen them before.
+ */
+const HOLDS_FOR_TAP: Record<CinematicMode, boolean> = {
+  intro: true,
+  interlude: false,
+  outroWin: false,
+  outroLoss: false,
+};
+
 export class Cinematic {
   private images: Record<ImgKey, HTMLImageElement>;
   private mode: CinematicMode | null = null;
@@ -124,7 +141,12 @@ export class Cinematic {
   private beatStartedAt = 0;
   private finished = false;
 
-  constructor() {
+  /**
+   * @param onBeat fires whenever a new line comes up, with whether that beat
+   *   carries a caption. It exists so audio can follow the script without
+   *   this module having to know anything about sound.
+   */
+  constructor(private readonly onBeat?: (hasCaption: boolean) => void) {
     this.images = Object.fromEntries(Object.entries(SRC).map(([k, v]) => [k, loadImg(v)])) as Record<
       ImgKey,
       HTMLImageElement
@@ -136,6 +158,9 @@ export class Cinematic {
     this.beatIndex = 0;
     this.beatStartedAt = now;
     this.finished = false;
+    // Announce the opening line too, so every beat is reported the same way
+    // and the first one is not a silent special case.
+    this.onBeat?.(SCRIPT[mode][0].caption !== undefined);
   }
 
   private beats(): Beat[] {
@@ -158,12 +183,24 @@ export class Cinematic {
     if (!this.mode || this.finished) return;
     this.beatIndex += 1;
     this.beatStartedAt = now;
-    if (this.beatIndex >= this.beats().length) this.finished = true;
+    if (this.beatIndex >= this.beats().length) {
+      this.finished = true;
+      return;
+    }
+    this.onBeat?.(this.beats()[this.beatIndex].caption !== undefined);
   }
 
   update(now: number): void {
     if (!this.mode || this.finished) return;
-    if (this.beatAge(now) >= IDLE_ADVANCE_SEC) this.advance(now);
+    const age = this.beatAge(now);
+    if (HOLDS_FOR_TAP[this.mode]) {
+      // Waits for a tap; the timeout is only the abandoned-kiosk net.
+      if (age >= IDLE_ADVANCE_SEC) this.advance(now);
+      return;
+    }
+    // Plays itself: each beat runs for its own slice of the timeline.
+    const beats = this.beats();
+    if (age >= beats[this.beatIndex].until - this.beatStart()) this.advance(now);
   }
 
   isDone(): boolean {
@@ -215,7 +252,7 @@ export class Cinematic {
     else this.renderLoss(ctx, staged, anim, width, height, mascot);
 
     this.drawScript(ctx, beat, age, width, height);
-    if (age > 0.35) this.drawSkipHint(ctx, width, height, age);
+    if (age > 0.35) this.drawPrompt(ctx, width, height, age, HOLDS_FOR_TAP[this.mode]);
   }
 
   private drawStars(ctx: CanvasRenderingContext2D, width: number, height: number, clock: number): void {
@@ -493,16 +530,33 @@ export class Cinematic {
     }
   }
 
-  /** The prompt that tells the player the scene is waiting on them. Pulses,
-   * because a static hint on a held frame reads as a stuck game. */
-  private drawSkipHint(ctx: CanvasRenderingContext2D, width: number, height: number, age: number): void {
+  /**
+   * A held scene gets a pulsing "tap to continue" by the subtitle, because a
+   * static frame with no prompt reads as a stuck game. A self-playing scene
+   * gets a quiet "tap to skip" tucked in the corner instead — it is an
+   * escape hatch for a repeat player, not an instruction.
+   */
+  private drawPrompt(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    age: number,
+    holds: boolean,
+  ): void {
     ctx.save();
-    ctx.globalAlpha = 0.45 + 0.35 * Math.sin(age * 3.4);
-    ctx.font = `700 13px ${CANVAS_FONT_STACK}`;
     ctx.textAlign = "right";
     ctx.textBaseline = "alphabetic";
-    ctx.fillStyle = "#7dffb3";
-    ctx.fillText("TAP TO CONTINUE  ▸", width - 26, height - 22);
+    if (holds) {
+      ctx.globalAlpha = 0.45 + 0.35 * Math.sin(age * 3.4);
+      ctx.font = `700 13px ${CANVAS_FONT_STACK}`;
+      ctx.fillStyle = "#7dffb3";
+      ctx.fillText("TAP TO CONTINUE  ▸", width - 26, height - 22);
+    } else {
+      ctx.globalAlpha = 0.32;
+      ctx.font = `700 12px ${CANVAS_FONT_STACK}`;
+      ctx.fillStyle = "#cfe6ff";
+      ctx.fillText("TAP TO SKIP", width - 22, 26);
+    }
     ctx.restore();
   }
 }

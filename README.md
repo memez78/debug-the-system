@@ -59,8 +59,20 @@ variables and no external services.
 `attract → intro → playing → (interlude) → outro → result → attract`
 
 The intro, mid-round interlude and outro are **cinematics**
-(`game/cinematic.ts`): scripted, tap-skippable sequences with the mascot
-talking over illustrated art. They are purely presentational and never
+(`game/cinematic.ts`): scripted sequences with the mascot talking over
+illustrated art.
+
+The **intro waits for the player**. Each line stays on screen until they tap,
+because that is the one place someone is meeting the robot and the premise
+for the first time and a slow reader must not lose the line. The interlude
+and both outros **play themselves through** — they are beats inside a round
+already in motion, and stopping to ask for a tap there kills the momentum; a
+tap still skips ahead for anyone who has seen them. Which is which is set by
+`HOLDS_FOR_TAP` in `game/cinematic.ts`.
+
+A held line moves on by itself after 45 seconds. That is not pacing — it is
+the abandoned-kiosk safety net, so the booth is never left stuck on a
+half-finished scene for the next student. They are purely presentational and never
 touch scoring, the question mechanic, the leaderboard or the reward tiers.
 The interlude fires once per round, the first time a player crosses the
 sticker threshold, and the round clock is paused for its duration so it
@@ -90,6 +102,28 @@ Inside `playing`, each question cycle is:
    across the field and the moon looms in from the top. It is atmosphere
    only — nothing there is tappable and nothing there affects scoring. It
    draws *behind* the answer blocks so options stay readable.
+
+## Sound
+
+Every sound is **synthesised at runtime** by [`game/sound.ts`](game/sound.ts)
+using the Web Audio API. There are no audio files in this project on purpose:
+short synthesised blips are the right texture for an arcade cabinet, and it
+means nothing to download, nothing to license, no delay before the first
+sound, and every tone is a number you can tune rather than an asset you have
+to re-record.
+
+Cues are wired to correct and wrong answers (the correct one rises in pitch
+with the streak), a failed question, a timeout, answers appearing, the round
+starting, the per-second countdown beep over the closing seconds, each line
+of cinematic dialogue, captioned beats, and the interlude/win/loss stings.
+
+- **Press `M` to mute** (ignored while typing a name on the result screen).
+- Overall level is `CONFIG.SOUND_MASTER_VOLUME`. It is deliberately low —
+  square and saw waves are much harsher per unit of gain than recorded
+  samples, and a booth runs this for hours.
+- Browsers keep audio silent until a real user gesture, so the audio context
+  is built on the first tap. Nothing plays on the attract screen before
+  anyone has touched it, which is intentional.
 
 ## Questions
 

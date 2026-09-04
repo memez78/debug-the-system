@@ -23,6 +23,7 @@ import {
 } from "./particles";
 import { drawPrizeNote } from "./prizeNote";
 import { pickNextQuestion } from "./questions";
+import { Sound } from "./sound";
 import { addLeaderboardEntry, getTodaysLeaderboard, qualifiesForLeaderboard } from "./storage";
 import type {
   AnswerBlock,
@@ -119,7 +120,16 @@ export class GameEngine {
   private floatingTexts: FloatingText[] = [];
   private bg = new ParallaxBackground();
   private mascot = new Mascot();
-  private cinematic = new Cinematic();
+  private sound = new Sound();
+  /** Cinematic reports each new beat so audio can follow the script without
+   * game/cinematic.ts needing to know that audio exists at all. */
+  private cinematic = new Cinematic((hasCaption) => {
+    if (hasCaption) this.sound.caption();
+    else this.sound.dialogue();
+  });
+  /** Whole second the urgent countdown last beeped on, so the tick fires
+   * once per second rather than once per frame. */
+  private lastUrgentTickSec = -1;
   private illusion = new Illusion();
   /** 0-1 ramp of the "illusion" pressure, driven by score past the tech-kit
    * threshold. Purely atmospheric — never affects scoring or hit-testing. */
@@ -182,6 +192,7 @@ export class GameEngine {
     this.handleResize();
 
     canvas.addEventListener("pointerdown", this.onPointerDown);
+    window.addEventListener("keydown", this.onKeyDown);
     canvas.addEventListener("pointermove", this.onPointerMove);
     document.addEventListener("visibilitychange", this.onVisibilityChange);
 
@@ -196,6 +207,7 @@ export class GameEngine {
     this.destroyed = true;
     if (this.rafId !== null) cancelAnimationFrame(this.rafId);
     this.resizeObserver?.disconnect();
+    window.removeEventListener("keydown", this.onKeyDown);
     this.canvas?.removeEventListener("pointerdown", this.onPointerDown);
     this.canvas?.removeEventListener("pointermove", this.onPointerMove);
     document.removeEventListener("visibilitychange", this.onVisibilityChange);
@@ -215,6 +227,15 @@ export class GameEngine {
     this.mascot.setStation(this.width / 2, this.height - 78);
   }
 
+  private onKeyDown = (e: KeyboardEvent): void => {
+    // Booth staff mute. Ignored while a name is being typed on the result
+    // screen, where "m" is just a letter.
+    if (e.key !== "m" && e.key !== "M") return;
+    const target = e.target as HTMLElement | null;
+    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+    this.sound.toggleMute();
+  };
+
   private onVisibilityChange = (): void => {
     if (!document.hidden) {
       this.lastRealTime = performance.now();
@@ -223,6 +244,8 @@ export class GameEngine {
 
   private onPointerDown = (e: PointerEvent): void => {
     if (!this.canvas) return;
+    // Browsers keep an AudioContext silent until a real gesture; this is it.
+    this.sound.unlock();
     const rect = this.canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -290,6 +313,7 @@ export class GameEngine {
       spawnBurst(this.particles, b.x, b.y, "#ffb020", 10);
       this.setFlashFact(randomWrongFlashFact(), now);
       this.shake = Math.max(this.shake, 4);
+      if (scoreCounts) this.sound.wrong();
       // After enough wrong taps, abandon the question so it can't be brute-
       // forced by elimination — clearing the blocks makes updatePlaying
       // schedule the next question, exactly like a timeout (combo already 0).
@@ -298,6 +322,7 @@ export class GameEngine {
         if (this.wrongTapsThisQuestion >= CONFIG.MAX_WRONG_TAPS_PER_QUESTION) {
           this.answerBlocks = [];
           this.setFlashFact("QUESTION FAILED", now);
+          this.sound.questionFailed();
         }
       }
       return;
@@ -309,6 +334,7 @@ export class GameEngine {
       this.score += points;
       const tier = comboTier(this.combo);
       const color = comboTierColor(tier);
+      this.sound.correct(this.combo - 1);
       spawnFloatingText(this.floatingTexts, b.x, b.y, `+${points}`, color, 24);
       spawnBurst(this.particles, b.x, b.y, color, 16 + this.combo);
       this.setFlashFact(randomCorrectFlashFact(), now);
@@ -402,7 +428,9 @@ export class GameEngine {
     this.illusionIntensity = 0;
     this.illusion.reset();
     this.interludePlayed = false;
+    this.lastUrgentTickSec = -1;
     this.mascot.setPanicking(false);
+    this.sound.roundStart();
     this.startQuestion(this.engineNow);
     this.publish({
       phase: "playing",
@@ -428,6 +456,7 @@ export class GameEngine {
     this.answerBlocks = [];
     this.nextQuestionAt = null;
     this.cinematic.start("interlude", now);
+    this.sound.interlude();
     this.publish({
       phase: "interlude",
       flashFact: null,
@@ -472,6 +501,8 @@ export class GameEngine {
     // Only cracking the 10 BD threshold earns the "breach the server" ending;
     // every other outcome ends with the robot lost to the void.
     this.cinematic.start(tier === "bd10" ? "outroWin" : "outroLoss", now);
+    if (tier === "bd10") this.sound.win();
+    else this.sound.lose();
     this.publish({
       phase: "outro",
       flashFact: null,
@@ -541,6 +572,11 @@ export class GameEngine {
     }
     const urgent = timeLeftMs <= CONFIG.URGENT_TIME_SEC * 1000;
     this.mascot.setPanicking(urgent);
+    const secLeft = Math.ceil(timeLeftMs / 1000);
+    if (urgent && secLeft !== this.lastUrgentTickSec) {
+      this.lastUrgentTickSec = secLeft;
+      this.sound.urgentTick();
+    }
 
     // First time they bank a sticker, cut to the mid-round scene.
     if (!this.interludePlayed && this.score >= CONFIG.STICKER_SCORE_THRESHOLD) {
@@ -576,6 +612,7 @@ export class GameEngine {
           this.fieldBounds(),
         );
         this.questionPhase = "answering";
+        this.sound.answersUp();
       }
     } else {
       updateAnswerBlocks(this.answerBlocks, dtSec, this.width, this.height, this.fieldBounds());
@@ -586,7 +623,10 @@ export class GameEngine {
           this.answerBlocks.splice(i, 1);
         }
       }
-      if (anyExpired) this.combo = 1;
+      if (anyExpired) {
+        this.combo = 1;
+        this.sound.timeout();
+      }
       if (this.answerBlocks.length === 0 && this.nextQuestionAt === null) {
         this.nextQuestionAt = now + CONFIG.QUESTION_RESOLVE_PAUSE_MS;
       }
