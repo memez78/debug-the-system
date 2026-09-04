@@ -112,10 +112,36 @@ means nothing to download, nothing to license, no delay before the first
 sound, and every tone is a number you can tune rather than an asset you have
 to re-record.
 
-Cues are wired to correct and wrong answers (the correct one rises in pitch
-with the streak), a failed question, a timeout, answers appearing, the round
-starting, the per-second countdown beep over the closing seconds, each line
-of cinematic dialogue, captioned beats, and the interlude/win/loss stings.
+**One-shot cues** are wired to correct and wrong answers (the correct one
+rises in pitch with the streak), a failed question, a timeout, answers
+appearing, the round starting, the per-second countdown beep over the closing
+seconds, each line of cinematic dialogue, captioned beats, the
+interlude/win/loss stings, a virus screech and a server-breach impact.
+
+Beat sounds are declared as `sfx` on the beat itself in `game/cinematic.ts`,
+right next to the shot they belong to, so audio cannot drift out of step with
+the picture.
+
+**Three continuous layers** run underneath, each a single voice created once
+and left running with only its gain moved (starting and stopping oscillators
+per frame would click):
+
+- **Background music** — slow, sparse and generative. A four-chord pad
+  (Am-F-C-G) with occasional melody notes drawn from A minor pentatonic, so
+  any note fits any chord and the melody can be random without ever sounding
+  wrong. Roughly one note every two seconds. It ducks during a round so it
+  sits under the effects, and comes back up on the screens where nothing else
+  is playing (`SOUND_MUSIC_LEVEL_*`).
+- **Thruster** — filtered noise, a roar rather than a tone, riding
+  `Mascot.flameIntensity`. That value is computed in `update()` rather than
+  in `draw()` so the sound and the drawn flame can never disagree.
+- **Virus dread** — two detuned saws through a slowly-swept filter, scaled by
+  the illusion intensity. They beat against each other and never settle.
+
+All three are driven once per frame from `GameEngine.updateAmbientAudio()`,
+from the one place that can see every input they depend on, rather than being
+poked from each transition that happens to change them — which is how a layer
+ends up stuck on after a phase change.
 
 - **Press `M` to mute** (ignored while typing a name on the result screen).
 - Overall level is `CONFIG.SOUND_MASTER_VOLUME`. It is deliberately low —

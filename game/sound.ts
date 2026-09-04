@@ -23,6 +23,17 @@ export class Sound {
   private noise: AudioBuffer | null = null;
   private muted = false;
 
+  // Continuous layers. Each is one voice created once and left running for
+  // the life of the page, with only its gain moved — starting and stopping
+  // oscillators per frame would click, and churn nodes for no reason.
+  private musicBus: GainNode | null = null;
+  private thrustGain: GainNode | null = null;
+  private dreadGain: GainNode | null = null;
+
+  /** Audio-clock time the next music step is due. */
+  private nextStepAt = 0;
+  private step = 0;
+
   /** Called from a real user gesture (the first pointerdown). Safe to call
    * repeatedly — it builds the context once and resumes it if suspended. */
   unlock(): void {
@@ -35,6 +46,7 @@ export class Sound {
         this.master = this.ctx.createGain();
         this.master.gain.value = this.muted ? 0 : CONFIG.SOUND_MASTER_VOLUME;
         this.master.connect(this.ctx.destination);
+        this.buildLayers();
       }
       if (this.ctx.state === "suspended") void this.ctx.resume();
     } catch {
@@ -119,6 +131,208 @@ export class Sound {
     gain.connect(master);
     src.start(start);
     src.stop(start + durSec + 0.02);
+  }
+
+  /** White noise, built once and reused for every burst and the thruster. */
+  private noiseBuffer(): AudioBuffer | null {
+    const ctx = this.ctx;
+    if (!ctx) return null;
+    if (!this.noise) {
+      const frames = Math.floor(ctx.sampleRate * 2);
+      this.noise = ctx.createBuffer(1, frames, ctx.sampleRate);
+      const data = this.noise.getChannelData(0);
+      for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
+    }
+    return this.noise;
+  }
+
+  /**
+   * Builds the always-on layers: the music bus, the thruster roar and the
+   * virus dread drone. All three sit at zero gain until something asks for
+   * them, so this is silent until the game says otherwise.
+   */
+  private buildLayers(): void {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master) return;
+
+    this.musicBus = ctx.createGain();
+    this.musicBus.gain.value = 0;
+    this.musicBus.connect(master);
+
+    // Thruster: filtered noise, i.e. a roar rather than a tone. Rolled off
+    // hard at the top so it sits under the effects instead of hissing over
+    // them, and high-passed so it does not muddy the music's bass.
+    const buffer = this.noiseBuffer();
+    if (buffer) {
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.loop = true;
+      const low = ctx.createBiquadFilter();
+      low.type = "lowpass";
+      low.frequency.value = 700;
+      const high = ctx.createBiquadFilter();
+      high.type = "highpass";
+      high.frequency.value = 160;
+      this.thrustGain = ctx.createGain();
+      this.thrustGain.gain.value = 0;
+      src.connect(low);
+      low.connect(high);
+      high.connect(this.thrustGain);
+      this.thrustGain.connect(master);
+      src.start();
+    }
+
+    // Virus dread: two saws a few cents apart, so they beat against each
+    // other and never settle — an unresolved sound for an unresolved
+    // situation. A slow LFO opens and closes the filter so it breathes.
+    const a = ctx.createOscillator();
+    const b = ctx.createOscillator();
+    a.type = "sawtooth";
+    b.type = "sawtooth";
+    a.frequency.value = 55;
+    b.frequency.value = 55.7;
+    const filter = ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 190;
+    filter.Q.value = 6;
+    const lfo = ctx.createOscillator();
+    const lfoDepth = ctx.createGain();
+    lfo.frequency.value = 0.18;
+    lfoDepth.gain.value = 70;
+    lfo.connect(lfoDepth);
+    lfoDepth.connect(filter.frequency);
+    this.dreadGain = ctx.createGain();
+    this.dreadGain.gain.value = 0;
+    a.connect(filter);
+    b.connect(filter);
+    filter.connect(this.dreadGain);
+    this.dreadGain.connect(master);
+    a.start();
+    b.start();
+    lfo.start();
+  }
+
+  /** Smoothly moves a continuous layer's gain. setTargetAtTime, not a step,
+   * so nothing ever clicks. */
+  private ride(node: GainNode | null, target: number, seconds: number): void {
+    if (!node || !this.ctx) return;
+    node.gain.setTargetAtTime(target, this.ctx.currentTime, seconds);
+  }
+
+  /** @param level 0-1 thruster output, straight from Mascot.flameIntensity. */
+  setThrust(level: number): void {
+    this.ride(this.thrustGain, Math.max(0, Math.min(1, level)) * CONFIG.SOUND_THRUST_VOLUME, 0.08);
+  }
+
+  /** @param level 0-1 illusion pressure — how close the viruses feel. */
+  setDread(level: number): void {
+    this.ride(this.dreadGain, Math.max(0, Math.min(1, level)) * CONFIG.SOUND_DREAD_VOLUME, 0.5);
+  }
+
+  // ---- Ambient music ------------------------------------------------------
+
+  /** Four slow chords, Am-F-C-G. Common, consonant, and impossible to land
+   * on a sour note against. */
+  private static readonly CHORDS = [
+    [220, 261.63, 329.63],
+    [174.61, 220, 261.63],
+    [261.63, 329.63, 392],
+    [196, 246.94, 293.66],
+  ];
+  /** A minor pentatonic. Any note drawn from it fits any chord above, which
+   * is what lets the melody be random without ever sounding wrong. */
+  private static readonly PENTATONIC = [440, 523.25, 587.33, 659.25, 783.99];
+  /** Steps in each 8-step bar that get a melody note. Sparse on purpose —
+   * silence is what keeps background music from becoming wallpaper noise. */
+  private static readonly MELODY_STEPS = new Set([1, 4, 6]);
+
+  /**
+   * Slow, sparse, generative background music.
+   *
+   * Called every frame with how present the music should be right now, and
+   * schedules a little ahead of the audio clock so note timing comes from
+   * the audio thread rather than from frame timing.
+   *
+   * @param level 0 = silent, 1 = full. Ducked during play so it sits under
+   *   the effects instead of competing with them.
+   */
+  updateMusic(level: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.musicBus) return;
+    this.ride(this.musicBus, level * CONFIG.SOUND_MUSIC_VOLUME, 1.2);
+    if (this.muted || level <= 0) {
+      // Resync on the next unmute rather than racing to catch up on every
+      // step that went by while it was silent.
+      this.nextStepAt = 0;
+      return;
+    }
+
+    const stepSec = CONFIG.SOUND_MUSIC_STEP_SEC;
+    // The audio clock keeps running while the game loop is paused (hidden
+    // tab), so on resume the schedule can be far in the past. Resync instead
+    // of scheduling every step that went by in one burst.
+    if (this.nextStepAt === 0 || this.nextStepAt < ctx.currentTime - 1) {
+      this.nextStepAt = ctx.currentTime + 0.1;
+    }
+    // Schedule a short way ahead, so a dropped frame cannot stutter the beat.
+    while (this.nextStepAt < ctx.currentTime + 0.4) {
+      this.scheduleStep(this.nextStepAt);
+      this.nextStepAt += stepSec;
+      this.step += 1;
+    }
+  }
+
+  private scheduleStep(at: number): void {
+    const bus = this.musicBus;
+    if (!bus) return;
+    const bar = Math.floor(this.step / 8) % Sound.CHORDS.length;
+    const beat = this.step % 8;
+
+    // A new pad chord at the top of each bar, long and soft underneath.
+    if (beat === 0) {
+      Sound.CHORDS[bar].forEach((hz, i) => this.pad(at + i * 0.03, hz, CONFIG.SOUND_MUSIC_STEP_SEC * 8 * 0.95));
+    }
+    if (Sound.MELODY_STEPS.has(beat)) {
+      const hz = Sound.PENTATONIC[Math.floor(Math.random() * Sound.PENTATONIC.length)];
+      this.bell(at, hz);
+    }
+  }
+
+  /** Long, soft, slow-attack chord tone. */
+  private pad(start: number, hz: number, durSec: number): void {
+    const ctx = this.ctx;
+    const bus = this.musicBus;
+    if (!ctx || !bus) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "triangle";
+    osc.frequency.value = hz;
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(0.16, start + durSec * 0.35);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + durSec);
+    osc.connect(gain);
+    gain.connect(bus);
+    osc.start(start);
+    osc.stop(start + durSec + 0.05);
+  }
+
+  /** Short plucked melody note with a long tail. */
+  private bell(start: number, hz: number): void {
+    const ctx = this.ctx;
+    const bus = this.musicBus;
+    if (!ctx || !bus) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = hz;
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(0.2, start + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + 1.6);
+    osc.connect(gain);
+    gain.connect(bus);
+    osc.start(start);
+    osc.stop(start + 1.7);
   }
 
   // ---- Cues ---------------------------------------------------------------
@@ -209,6 +423,23 @@ export class Sound {
     [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((hz, i) =>
       this.tone(t + i * 0.13, hz, hz, 0.34, "square", 0.11),
     );
+  }
+
+  /** Viruses arriving — in the intro, and when the illusion first bites. */
+  virusScreech(): void {
+    const t = this.at();
+    if (t === null) return;
+    this.tone(t, 900, 210, 0.5, "sawtooth", 0.1);
+    this.tone(t + 0.06, 1350, 300, 0.42, "square", 0.05);
+    this.burst(t, 0.4, 0.08, 2600);
+  }
+
+  /** Something breaking open — the server core in the win outro. */
+  impact(): void {
+    const t = this.at();
+    if (t === null) return;
+    this.burst(t, 0.55, 0.28, 1600);
+    this.tone(t, 140, 45, 0.6, "square", 0.14);
   }
 
   /** Losing the robot to the void. */

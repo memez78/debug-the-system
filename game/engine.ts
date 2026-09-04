@@ -123,9 +123,11 @@ export class GameEngine {
   private sound = new Sound();
   /** Cinematic reports each new beat so audio can follow the script without
    * game/cinematic.ts needing to know that audio exists at all. */
-  private cinematic = new Cinematic((hasCaption) => {
+  private cinematic = new Cinematic(({ hasCaption, sfx }) => {
     if (hasCaption) this.sound.caption();
     else this.sound.dialogue();
+    if (sfx === "virus") this.sound.virusScreech();
+    else if (sfx === "impact") this.sound.impact();
   });
   /** Whole second the urgent countdown last beeped on, so the tick fires
    * once per second rather than once per frame. */
@@ -134,6 +136,9 @@ export class GameEngine {
   /** 0-1 ramp of the "illusion" pressure, driven by score past the tech-kit
    * threshold. Purely atmospheric — never affects scoring or hit-testing. */
   private illusionIntensity = 0;
+  /** The virus screech announcing the illusion fires once per round, on the
+   * frame the pressure first becomes non-zero. */
+  private illusionAnnounced = false;
   /** Result computed at round end, held while the outro plays. */
   private pendingResult: RoundResult | null = null;
 
@@ -426,6 +431,7 @@ export class GameEngine {
     this.nextQuestionAt = null;
     this.roundStartAt = this.engineNow;
     this.illusionIntensity = 0;
+    this.illusionAnnounced = false;
     this.illusion.reset();
     this.interludePlayed = false;
     this.lastUrgentTickSec = -1;
@@ -596,6 +602,10 @@ export class GameEngine {
     const illusionFull = CONFIG.TECH_KIT_SCORE_THRESHOLD * 3;
     this.illusionIntensity = clamp01((this.score - illusionStart) / (illusionFull - illusionStart));
     this.illusion.update(dtSec, this.illusionIntensity, this.width, this.height);
+    if (!this.illusionAnnounced && this.illusionIntensity > 0) {
+      this.illusionAnnounced = true;
+      this.sound.virusScreech();
+    }
 
     if (this.questionPhase === "reading") {
       if (now >= this.readEndAt && this.currentQuestion && this.ctx) {
@@ -760,6 +770,7 @@ export class GameEngine {
 
     this.bg.update(dtSec);
     this.mascot.update(dtSec);
+    this.updateAmbientAudio();
     updateParticles(this.particles, dtSec);
     updateFloatingTexts(this.floatingTexts, dtSec);
     this.shake *= Math.max(0, 1 - dtSec * 6);
@@ -780,6 +791,35 @@ export class GameEngine {
 
     this.render(now);
   };
+
+  /**
+   * Drives the three continuous audio layers. They are set here, once per
+   * frame from the one place that can see every input they depend on, rather
+   * than being poked from each of the transitions that happen to change them
+   * — which is how a layer ends up stuck on after a phase change.
+   */
+  private updateAmbientAudio(): void {
+    this.sound.updateMusic(this.musicLevelForPhase());
+    // The thruster only roars where the flame is actually drawn: the mascot
+    // is hidden on the result screen and drawn by the cinematics themselves.
+    const flying = this.phase === "attract" || this.phase === "playing";
+    this.sound.setThrust(flying ? this.mascot.flameIntensity : 0);
+    // Dread tracks the illusion, which only exists mid-round.
+    this.sound.setDread(this.phase === "playing" ? this.illusionIntensity : 0);
+  }
+
+  private musicLevelForPhase(): number {
+    switch (this.phase) {
+      case "attract":
+        return CONFIG.SOUND_MUSIC_LEVEL_ATTRACT;
+      case "playing":
+        return CONFIG.SOUND_MUSIC_LEVEL_PLAYING;
+      case "result":
+        return CONFIG.SOUND_MUSIC_LEVEL_RESULT;
+      default:
+        return CONFIG.SOUND_MUSIC_LEVEL_CINEMATIC;
+    }
+  }
 
   private render(now: number): void {
     const ctx = this.ctx;

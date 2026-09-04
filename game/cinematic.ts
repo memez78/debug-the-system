@@ -52,6 +52,11 @@ const SRC = {
 type ImgKey = keyof typeof SRC;
 
 /**
+ * A one-shot sound tied to what a beat actually shows on screen.
+ */
+export type BeatSfx = "virus" | "impact";
+
+/**
  * A story beat: one line of dialogue and the shot that goes with it.
  *
  * `until` is a position on the sequence timeline, in seconds, marking where
@@ -64,6 +69,9 @@ interface Beat {
   until: number;
   caption?: string;
   line?: string;
+  /** Fired once when this beat comes up. Declared here, next to the shot it
+   * belongs to, so the audio can never drift out of step with the picture. */
+  sfx?: BeatSfx;
 }
 
 /**
@@ -79,23 +87,23 @@ const SCRIPT: Record<CinematicMode, Beat[]> = {
     { until: 6.4, line: "Name's UNIT-01. Maintenance. Nobody calls me with good news." },
     { until: T.intro.closeUpOut, line: "Whatever got in chewed through six firewalls and ran for the moon." },
     { until: T.intro.viruses, line: "So that's where we're going. Try to keep up." },
-    { until: 14.9, caption: "INFECTION DETECTED", line: "...Oh good. It brought friends." },
+    { until: 14.9, caption: "INFECTION DETECTED", line: "...Oh good. It brought friends.", sfx: "virus" },
     { until: T.intro.end, line: "I can't out-think these things alone. You answer, I punch. Go." },
   ],
   interlude: [
     { until: T.interlude.ring, caption: "FIREWALL LAYER BREACHED", line: "Layer one's down. Okay. You're actually good at this." },
     { until: T.interlude.swarm, line: "Take a sticker. I'd give you a medal, but you've seen our budget." },
-    { until: T.interlude.end, line: "Don't get comfortable. They know we're in here now." },
+    { until: T.interlude.end, line: "Don't get comfortable. They know we're in here now.", sfx: "virus" },
   ],
   outroWin: [
     { until: T.win.blast, line: "Core's wide open. Going in — cover me!" },
-    { until: T.win.ashes },
+    { until: T.win.ashes, sfx: "impact" },
     { until: T.win.money, line: "......Huh." },
     { until: 8.6, caption: "10 BD RETRIEVED", line: "Ten dinars. That was sitting in there the whole time." },
     { until: T.win.end, line: "Take it. Go. Before somebody files this as an incident." },
   ],
   outroLoss: [
-    { until: T.loss.lunge, line: "There's too many— I can't—" },
+    { until: T.loss.lunge, line: "There's too many— I can't—", sfx: "virus" },
     { until: 5.1, line: "Thrusters are gone. I'm not flying anymore, I'm falling." },
     { until: 8, caption: "SYSTEM LOST", line: "...tell them I filed the paperwork..." },
     { until: T.loss.end, line: "Eh. I'll reboot. I always do. Go again?" },
@@ -142,11 +150,12 @@ export class Cinematic {
   private finished = false;
 
   /**
-   * @param onBeat fires whenever a new line comes up, with whether that beat
-   *   carries a caption. It exists so audio can follow the script without
-   *   this module having to know anything about sound.
+   * @param onBeat fires whenever a new line comes up, reporting whether the
+   *   beat carries a caption and any one-shot sound it declares. It exists so
+   *   audio can follow the script without this module having to know
+   *   anything about sound.
    */
-  constructor(private readonly onBeat?: (hasCaption: boolean) => void) {
+  constructor(private readonly onBeat?: (info: { hasCaption: boolean; sfx?: BeatSfx }) => void) {
     this.images = Object.fromEntries(Object.entries(SRC).map(([k, v]) => [k, loadImg(v)])) as Record<
       ImgKey,
       HTMLImageElement
@@ -160,7 +169,7 @@ export class Cinematic {
     this.finished = false;
     // Announce the opening line too, so every beat is reported the same way
     // and the first one is not a silent special case.
-    this.onBeat?.(SCRIPT[mode][0].caption !== undefined);
+    this.emitBeat(SCRIPT[mode][0]);
   }
 
   private beats(): Beat[] {
@@ -187,7 +196,11 @@ export class Cinematic {
       this.finished = true;
       return;
     }
-    this.onBeat?.(this.beats()[this.beatIndex].caption !== undefined);
+    this.emitBeat(this.beats()[this.beatIndex]);
+  }
+
+  private emitBeat(beat: Beat): void {
+    this.onBeat?.({ hasCaption: beat.caption !== undefined, sfx: beat.sfx });
   }
 
   update(now: number): void {

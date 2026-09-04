@@ -209,6 +209,24 @@ export const CONFIG = {
    *  are far harsher per unit of gain than recorded samples, and a booth
    *  runs this for hours. */
   SOUND_MASTER_VOLUME: 0.35,
+  /** Background music level, relative to master. Low by design: this plays
+   *  on a loop all day at a booth, and music you notice is music that
+   *  becomes irritating by hour three. */
+  SOUND_MUSIC_VOLUME: 0.4,
+  /** Seconds per music step. 8 steps to a bar, so this is a slow ~0.75 Hz
+   *  pulse — unhurried enough to sit behind conversation. */
+  SOUND_MUSIC_STEP_SEC: 0.75,
+  /** How loud the mascot's thruster roar gets at full throttle. */
+  SOUND_THRUST_VOLUME: 0.16,
+  /** How loud the virus drone gets at full illusion intensity. */
+  SOUND_DREAD_VOLUME: 0.22,
+  /** Music level per phase, as a fraction of SOUND_MUSIC_VOLUME. It ducks
+   *  during a round so it sits under the effects rather than competing with
+   *  them, and comes back up on the screens where nothing else is playing. */
+  SOUND_MUSIC_LEVEL_ATTRACT: 1,
+  SOUND_MUSIC_LEVEL_CINEMATIC: 0.7,
+  SOUND_MUSIC_LEVEL_PLAYING: 0.4,
+  SOUND_MUSIC_LEVEL_RESULT: 0.85,
 
   // ---- Engine internals -----------------------------------------------------
   /** Per-frame delta time is clamped to this many ms, so a dropped frame or

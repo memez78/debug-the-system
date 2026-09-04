@@ -28,6 +28,9 @@ export class Mascot {
   private sprites: Record<SpriteKey, HTMLImageElement>;
 
   anim: MascotAnim = "idle";
+  /** 0-1 thruster output, refreshed every update(). Drives both the drawn
+   * flame and the thruster audio, so the two can never disagree. */
+  flameIntensity = 0;
   animAge = 0;
   animDuration = 0;
   reachTargetX = 0;
@@ -99,6 +102,14 @@ export class Mascot {
     this.vy = (this.targetY - this.y) * CONFIG.MASCOT_FOLLOW_RATE;
     this.x += this.vx * dtSec;
     this.y += this.vy * dtSec;
+
+    // Kept here rather than recomputed in draw() so audio can follow the
+    // flame without depending on a render pass having happened.
+    const flySpeed = Math.hypot(this.vx, this.vy);
+    this.flameIntensity = clamp01(
+      (flySpeed - CONFIG.MASCOT_FLAME_MIN_SPEED) /
+        (CONFIG.MASCOT_FLAME_MAX_SPEED - CONFIG.MASCOT_FLAME_MIN_SPEED),
+    );
 
     if (this.anim !== "idle") {
       this.animAge += dtSec;
