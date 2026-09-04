@@ -1,3 +1,5 @@
+import { cachedGradient } from "./gradients";
+import { shadowBlurPx } from "./quality";
 import { clamp01 } from "./utils";
 
 /**
@@ -49,18 +51,24 @@ export function drawPrizeNote(ctx: CanvasRenderingContext2D, x: number, y: numbe
   ctx.rotate(tilt);
   ctx.scale(scale, scale);
 
-  // soft glow only — nothing else behind the note, so it never reads as a card
+  // Soft glow only — nothing else behind the note, so it never reads as a
+  // card. The shimmer rides on globalAlpha rather than being baked into a
+  // colour stop, which keeps the gradient itself constant and cacheable.
   const glowRadius = DISPLAY_WIDTH * 0.72;
-  const glow = ctx.createRadialGradient(0, 0, 4, 0, 0, glowRadius);
-  glow.addColorStop(0, `rgba(255, 210, 63, ${0.4 * shimmer})`);
-  glow.addColorStop(1, "rgba(255, 210, 63, 0)");
-  ctx.fillStyle = glow;
+  ctx.fillStyle = cachedGradient(ctx, "prizeNote", (c) => {
+    const g = c.createRadialGradient(0, 0, 4, 0, 0, glowRadius);
+    g.addColorStop(0, "rgba(255, 210, 63, 0.4)");
+    g.addColorStop(1, "rgba(255, 210, 63, 0)");
+    return g;
+  });
+  ctx.globalAlpha = alpha * shimmer;
   ctx.beginPath();
   ctx.arc(0, 0, glowRadius, 0, Math.PI * 2);
   ctx.fill();
 
+  ctx.globalAlpha = alpha;
   ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
-  ctx.shadowBlur = 16;
+  ctx.shadowBlur = shadowBlurPx(16);
   ctx.shadowOffsetY = 4;
   ctx.drawImage(img, -DISPLAY_WIDTH / 2, -DISPLAY_HEIGHT / 2, DISPLAY_WIDTH, DISPLAY_HEIGHT);
 

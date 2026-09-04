@@ -1,5 +1,7 @@
 import { ANSWER_BLOCK_HEIGHT, ANSWER_BLOCK_MAX_WIDTH, ANSWER_BLOCK_MIN_WIDTH, ANSWER_BLOCK_PADDING_X, CONFIG } from "./config";
 import type { AnswerBlock, Question } from "./types";
+import { cachedGradient } from "./gradients";
+import { shadowBlurPx } from "./quality";
 import { clamp, clamp01, nextId, pick, randRange, shuffle } from "./utils";
 
 /**
@@ -13,6 +15,25 @@ import { clamp, clamp01, nextId, pick, randRange, shuffle } from "./utils";
  * drawn may depend on whether it is correct.
  */
 export const BLOCK_COLOR = "#39d6ff";
+
+/**
+ * Every tint derived from BLOCK_COLOR, resolved once at module load.
+ *
+ * These were previously built by a `hexA()` helper called four or five
+ * times per block per frame — parsing the same three hex pairs and
+ * allocating the same handful of strings sixty times a second, for values
+ * that cannot change because both the colour and the alphas are constants.
+ */
+/** Gap kept between a block and the left/right edge of the canvas, both
+ * when its width is chosen and when it bounces. */
+export const ANSWER_BLOCK_EDGE_MARGIN_PX = 8;
+
+const GLOW_INNER = withAlpha(BLOCK_COLOR, 0.35);
+const GLOW_OUTER = withAlpha(BLOCK_COLOR, 0);
+const TIMER_BAR_TRACK = withAlpha(BLOCK_COLOR, 0.25);
+const TIMER_BAR_FILL = withAlpha(BLOCK_COLOR, 0.95);
+const BLOCK_BODY_FILL = "rgba(10, 16, 22, 0.88)";
+const BLOCK_TEXT_FILL = "#eafff5";
 
 const CORRECT_FLASH_FACTS = ["CORRECT!", "NAILED IT", "SYSTEM PATCHED", "NICE CATCH", "DEBUGGED"];
 const WRONG_FLASH_FACTS = ["NOT QUITE", "WRONG BRANCH", "TRY AGAIN", "MISFIRE"];
@@ -37,10 +58,26 @@ export function selectOptions(q: Question, count: number): { texts: string[]; co
   };
 }
 
-export function measureBlockWidth(ctx: CanvasRenderingContext2D, text: string, font: string): number {
+/**
+ * Width of the block that holds `text`, clamped so it always fits.
+ *
+ * The upper clamp is the smaller of ANSWER_BLOCK_MAX_WIDTH and what the
+ * canvas can actually hold: on a 375px phone a 380px block is wider than
+ * the screen, and updateAnswerBlocks would then pin it against both edges
+ * at once and fight itself. `viewportWidth` of 0 means "unknown", which
+ * leaves the original clamp alone.
+ */
+export function measureBlockWidth(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  font: string,
+  viewportWidth = 0,
+): number {
   ctx.font = font;
   const w = ctx.measureText(text).width + ANSWER_BLOCK_PADDING_X * 2;
-  return clamp(w, ANSWER_BLOCK_MIN_WIDTH, ANSWER_BLOCK_MAX_WIDTH);
+  const fits = viewportWidth > 0 ? viewportWidth - ANSWER_BLOCK_EDGE_MARGIN_PX * 2 : ANSWER_BLOCK_MAX_WIDTH;
+  const max = Math.max(ANSWER_BLOCK_MIN_WIDTH, Math.min(ANSWER_BLOCK_MAX_WIDTH, fits));
+  return clamp(w, Math.min(ANSWER_BLOCK_MIN_WIDTH, max), max);
 }
 
 /** The band answer blocks are allowed to live in. The top margin has to
@@ -94,7 +131,7 @@ export function spawnAnswerBlocks(
       y: positions[i].y,
       vx: Math.cos(angle) * driftSpeed,
       vy: Math.sin(angle) * driftSpeed,
-      width: measureBlockWidth(ctx, text, font),
+      width: measureBlockWidth(ctx, text, font, width),
       spawnedAt: now,
       expiresAt: now + windowMs,
       seed: Math.random() * 1000,
@@ -118,11 +155,11 @@ export function updateAnswerBlocks(
     b.y += b.vy * dtSec;
     const halfW = b.width / 2;
     const halfH = ANSWER_BLOCK_HEIGHT / 2;
-    if (b.x - halfW < 8) {
-      b.x = 8 + halfW;
+    if (b.x - halfW < ANSWER_BLOCK_EDGE_MARGIN_PX) {
+      b.x = ANSWER_BLOCK_EDGE_MARGIN_PX + halfW;
       b.vx = Math.abs(b.vx);
-    } else if (b.x + halfW > width - 8) {
-      b.x = width - 8 - halfW;
+    } else if (b.x + halfW > width - ANSWER_BLOCK_EDGE_MARGIN_PX) {
+      b.x = width - ANSWER_BLOCK_EDGE_MARGIN_PX - halfW;
       b.vx = -Math.abs(b.vx);
     }
     if (b.y - halfH < topMargin) {
@@ -194,19 +231,16 @@ export function drawAnswerBlock(
   }
 
   // glow
-  const glow = ctx.createRadialGradient(0, 0, 4, 0, 0, halfW * 1.5);
-  glow.addColorStop(0, hexA(color, 0.35));
-  glow.addColorStop(1, hexA(color, 0));
-  ctx.fillStyle = glow;
+  ctx.fillStyle = glowGradient(ctx, halfW);
   ctx.beginPath();
   ctx.arc(0, 0, halfW * 1.5, 0, Math.PI * 2);
   ctx.fill();
 
   // body
-  ctx.fillStyle = "rgba(10, 16, 22, 0.88)";
+  ctx.fillStyle = BLOCK_BODY_FILL;
   ctx.strokeStyle = color;
   ctx.shadowColor = color;
-  ctx.shadowBlur = flickering ? 22 : 16;
+  ctx.shadowBlur = shadowBlurPx(flickering ? 22 : 16);
   ctx.lineWidth = 3;
   roundRectPath(ctx, -halfW, -halfH, b.width, ANSWER_BLOCK_HEIGHT, 14);
   ctx.fill();
@@ -214,15 +248,15 @@ export function drawAnswerBlock(
 
   // remaining-time bar
   ctx.shadowBlur = 0;
-  ctx.fillStyle = hexA(color, 0.25);
+  ctx.fillStyle = TIMER_BAR_TRACK;
   ctx.fillRect(-halfW, halfH + 7, b.width, 4);
-  ctx.fillStyle = hexA(color, 0.95);
+  ctx.fillStyle = TIMER_BAR_FILL;
   ctx.fillRect(-halfW, halfH + 7, b.width * remaining, 4);
 
   // text — always a stable, readable color regardless of camouflage state
-  ctx.shadowBlur = flickering ? 10 : 6;
+  ctx.shadowBlur = shadowBlurPx(flickering ? 10 : 6);
   ctx.shadowColor = color;
-  ctx.fillStyle = "#eafff5";
+  ctx.fillStyle = BLOCK_TEXT_FILL;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.font = font;
@@ -250,7 +284,20 @@ function easeOutBack(t: number): number {
   return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
 }
 
-function hexA(hex: string, alpha: number): string {
+/** The block glow, keyed by half-width. Blocks share widths constantly —
+ * the clamp lands most long options on exactly ANSWER_BLOCK_MAX_WIDTH — so
+ * a handful of gradients serves every block in the round. */
+function glowGradient(ctx: CanvasRenderingContext2D, halfW: number): CanvasGradient {
+  const radius = Math.round(halfW);
+  return cachedGradient(ctx, `block:${radius}`, (c) => {
+    const g = c.createRadialGradient(0, 0, 4, 0, 0, radius * 1.5);
+    g.addColorStop(0, GLOW_INNER);
+    g.addColorStop(1, GLOW_OUTER);
+    return g;
+  });
+}
+
+function withAlpha(hex: string, alpha: number): string {
   const c = hex.replace("#", "");
   const r = parseInt(c.substring(0, 2), 16);
   const g = parseInt(c.substring(2, 4), 16);

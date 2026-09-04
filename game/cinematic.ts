@@ -1,5 +1,7 @@
 import { CANVAS_FONT_STACK } from "./canvasFont";
 import type { Mascot, SpriteKey } from "./mascot";
+import { shadowBlurPx } from "./quality";
+import { scaledSprite } from "./sprites";
 import { clamp01, lerp } from "./utils";
 
 /**
@@ -37,19 +39,34 @@ const T = {
   loss: { lunge: 2.4, fall: 5, end: 10.5 },
 } as const;
 
+/**
+ * The cinematic art, split by when it is first needed.
+ *
+ * This is about 8MB of PNG in total. Fetching all of it before the attract
+ * screen can even be tapped is the single slowest thing about opening the
+ * game on a phone, and most of it — the four server frames, 4.9MB — cannot
+ * appear until a round has already ended.
+ *
+ * `intro` is everything the first tap can put on screen, so it loads with
+ * the engine. `outro` loads when a round begins, which buys it the whole
+ * 120 seconds of the round to arrive over a slow connection.
+ */
 const SRC = {
   moon: "/cinematic/moon.png",
-  server: "/cinematic/server.png",
-  serverBlast: "/cinematic/server_broken_blast.png",
-  serverAshes: "/cinematic/server_broken_ashes.png",
-  serverMoney: "/cinematic/server_broken_money.png",
   virusGreen: "/cinematic/virus_green.png",
   virusGreenOpen: "/cinematic/virus_green_mouth_open.png",
   virusRed: "/cinematic/virus_red.png",
   virusRedOpen: "/cinematic/virus_red._mouth_open.png",
+  server: "/cinematic/server.png",
+  serverBlast: "/cinematic/server_broken_blast.png",
+  serverAshes: "/cinematic/server_broken_ashes.png",
+  serverMoney: "/cinematic/server_broken_money.png",
 } as const;
 
 type ImgKey = keyof typeof SRC;
+
+const INTRO_ART: readonly ImgKey[] = ["moon", "virusGreen", "virusGreenOpen", "virusRed", "virusRedOpen"];
+const OUTRO_ART: readonly ImgKey[] = ["server", "serverBlast", "serverAshes", "serverMoney"];
 
 /**
  * A one-shot sound tied to what a beat actually shows on screen.
@@ -142,7 +159,10 @@ const HOLDS_FOR_TAP: Record<CinematicMode, boolean> = {
 };
 
 export class Cinematic {
-  private images: Record<ImgKey, HTMLImageElement>;
+  /** Populated by loadArt(); a key that has not been requested yet is
+   * simply absent, and draw() skips it exactly as it already skips an image
+   * that has not finished decoding. */
+  private images = new Map<ImgKey, HTMLImageElement>();
   private mode: CinematicMode | null = null;
   /** Which line is on screen. Only a tap (or the idle net) moves this on. */
   private beatIndex = 0;
@@ -156,10 +176,20 @@ export class Cinematic {
    *   anything about sound.
    */
   constructor(private readonly onBeat?: (info: { hasCaption: boolean; sfx?: BeatSfx }) => void) {
-    this.images = Object.fromEntries(Object.entries(SRC).map(([k, v]) => [k, loadImg(v)])) as Record<
-      ImgKey,
-      HTMLImageElement
-    >;
+    this.loadArt(INTRO_ART);
+  }
+
+  /** Starts fetching the round-ending art. Called when a round begins, so
+   * it has the length of the round to arrive rather than being raced
+   * against the outro it is needed for. */
+  preloadOutroArt(): void {
+    this.loadArt(OUTRO_ART);
+  }
+
+  private loadArt(keys: readonly ImgKey[]): void {
+    for (const key of keys) {
+      if (!this.images.has(key)) this.images.set(key, loadImg(SRC[key]));
+    }
   }
 
   start(mode: CinematicMode, now: number): void {
@@ -221,9 +251,12 @@ export class Cinematic {
   }
 
   private draw(ctx: CanvasRenderingContext2D, key: ImgKey, cx: number, cy: number, height: number, alpha = 1): void {
-    const img = this.images[key];
-    if (!img.complete || img.naturalWidth === 0) return;
-    const w = height * (img.naturalWidth / img.naturalHeight);
+    const source = this.images.get(key);
+    if (!source || !source.complete || source.naturalWidth === 0) return;
+    const w = height * (source.naturalWidth / source.naturalHeight);
+    // Blit a pre-scaled copy when the art is being shrunk — these PNGs are
+    // 1024px and 1264px tall and a virus lands at a sixth of that.
+    const img = scaledSprite(source, w) ?? source;
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.drawImage(img, cx - w / 2, cy - height / 2, w, height);
@@ -356,7 +389,7 @@ export class Cinematic {
     ctx.strokeStyle = "#2effc7";
     ctx.lineWidth = 8 * (1 - ringT) + 2;
     ctx.shadowColor = "#2effc7";
-    ctx.shadowBlur = 30;
+    ctx.shadowBlur = shadowBlurPx(30);
     ctx.beginPath();
     ctx.arc(cx, height * 0.5, lerp(60, Math.max(width, height) * 0.7, ringT), 0, Math.PI * 2);
     ctx.stroke();
@@ -499,7 +532,7 @@ export class Cinematic {
       ctx.textBaseline = "middle";
       ctx.fillStyle = "#eafff5";
       ctx.shadowColor = "rgba(46, 255, 199, 0.85)";
-      ctx.shadowBlur = 18;
+      ctx.shadowBlur = shadowBlurPx(18);
       ctx.fillText(beat.caption, width / 2, height * 0.11);
       ctx.restore();
     }

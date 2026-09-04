@@ -246,6 +246,43 @@ export const CONFIG = {
   SOUND_MUSIC_LEVEL_PLAYING: 0,
   SOUND_MUSIC_LEVEL_RESULT: 0,
 
+  // ---- Rendering performance ------------------------------------------------
+  // How expensively the scene may be painted, per device tier. See
+  // game/quality.ts for what a tier actually switches. None of this touches
+  // difficulty, scoring or the question mechanic — a phone and the booth
+  // kiosk play exactly the same game, they just paint it at different cost.
+  /** Backing-store scale cap on the high tier. Above 2 the extra pixels are
+   *  invisible at arm's length and cost real fill rate. */
+  QUALITY_DPR_CAP_HIGH: 2,
+  /** Backing-store scale cap on the low tier. A 3x phone renders roughly
+   *  half as many pixels per frame at 1.5 as it would at 2. */
+  QUALITY_DPR_CAP_LOW: 1.5,
+  /** ctx.shadowBlur multiplier per tier; 0 disables canvas shadows. The
+   *  radial-gradient glows underneath the blocks and the mascot are not
+   *  shadows, so the neon look survives the low tier. */
+  QUALITY_SHADOW_SCALE_HIGH: 1,
+  QUALITY_SHADOW_SCALE_LOW: 0,
+  /** Digital-rain density and trail-length multiplier per tier. The rain is
+   *  the single biggest source of draw calls in an idle frame. */
+  QUALITY_RAIN_SCALE_HIGH: 1,
+  QUALITY_RAIN_SCALE_LOW: 0.5,
+  /** Below this viewport minimum-dimension (px), a coarse pointer is taken
+   *  to mean a phone rather than a kiosk touchscreen. */
+  QUALITY_SMALL_SCREEN_PX: 900,
+  /** navigator.hardwareConcurrency at or below this starts on the low tier. */
+  QUALITY_LOW_CORE_COUNT: 4,
+  /** navigator.deviceMemory (GB) at or below this starts on the low tier. */
+  QUALITY_LOW_MEMORY_GB: 4,
+  /** Frames measured before the adaptive quality check runs. */
+  QUALITY_SAMPLE_FRAMES: 90,
+  /** Median frame time (ms) above which the renderer drops to the low tier.
+   *  22ms is a sustained miss of the 16.7ms budget, not a single hiccup. */
+  QUALITY_DOWNGRADE_FRAME_MS: 22,
+  /** A frame longer than this is a stall (GC pause, tab refocus, first paint
+   *  after a phase change), not a steady-state cost, and is left out of the
+   *  measurement rather than allowed to condemn a fast device. */
+  QUALITY_STALL_FRAME_MS: 250,
+
   // ---- Engine internals -----------------------------------------------------
   /** Per-frame delta time is clamped to this many ms, so a dropped frame or
    *  a tab returning from background can never cause a catch-up burst. */

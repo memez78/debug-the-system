@@ -3,7 +3,12 @@
   inset: 0;
   pointer-events: none;
   font-family: var(--font-geist-mono, monospace);
-  padding: clamp(10px, 3vh, 24px) clamp(12px, 3vw, 36px);
+/* The page opts into `viewport-fit: cover` (app/layout.tsx), so on a phone
+   with a notch or a home indicator the overlay extends underneath them.
+   Adding the safe-area insets on top of the design padding keeps the HUD
+   clear of both; on every other device the insets resolve to 0. */
+  padding: calc(clamp(10px, 3vh, 24px) + env(safe-area-inset-top)) calc(clamp(12px, 3vw, 36px) + env(safe-area-inset-right))
+    calc(clamp(10px, 3vh, 24px) + env(safe-area-inset-bottom)) calc(clamp(12px, 3vw, 36px) + env(safe-area-inset-left));
   display: flex;
   flex-direction: column;
   align-items: center;

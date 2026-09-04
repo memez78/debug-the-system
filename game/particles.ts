@@ -1,4 +1,5 @@
 import { CANVAS_FONT_STACK } from "./canvasFont";
+import { shadowBlurPx } from "./quality";
 import type { FloatingText, Particle } from "./types";
 import { randRange } from "./utils";
 
@@ -41,6 +42,7 @@ export function updateParticles(particles: Particle[], dtSec: number): void {
 }
 
 export function drawParticles(ctx: CanvasRenderingContext2D, particles: Particle[]): void {
+  if (particles.length === 0) return;
   for (const p of particles) {
     const t = p.age / p.life;
     const alpha = 1 - t;
@@ -78,15 +80,17 @@ export function updateFloatingTexts(texts: FloatingText[], dtSec: number): void 
 }
 
 export function drawFloatingTexts(ctx: CanvasRenderingContext2D, texts: FloatingText[]): void {
+  if (texts.length === 0) return;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
+  const shadow = shadowBlurPx(12);
   for (const t of texts) {
     const p = t.age / t.life;
     ctx.globalAlpha = Math.max(0, 1 - p);
     ctx.font = `700 ${t.size}px ${CANVAS_FONT_STACK}`;
     ctx.fillStyle = t.color;
     ctx.shadowColor = t.color;
-    ctx.shadowBlur = 12;
+    ctx.shadowBlur = shadow;
     ctx.fillText(t.text, t.x, t.y);
   }
   ctx.shadowBlur = 0;

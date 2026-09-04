@@ -28,6 +28,9 @@ npm run build
 | 7 | `questionCategory` was plumbed through six files and never read | Engine → UI state → both overlays → `QuestionBanner`, which destructured `text`, `phase`, `compact` and dropped it. |
 | 9 | **The correct answer was a different colour from the decoys** | `CORRECT_COLOR` vs a wrong colour, plus jitter and chromatic ghosting applied to the correct block *only* — three separate tells. The right answer was identifiable from across the room without reading the question. The escalation had been built on "the correct one looks different, now disguise it", which is backwards; it should never have looked different. |
 | 10 | The prize threshold was not a finish line | The score could pass `BD10_SCORE_THRESHOLD` and the round carried on to the full 120s, while the attract screen and progress bar advertised that number as the win condition. Reaching it now ends the round on the spot and plays the win cinematic. |
+| 11 | **The frame was built for a desktop GPU** | On a phone the renderer set `ctx.filter = blur()` around the answer blocks (which makes the browser blur every subsequent draw call through a scratch surface — ~32 a frame), drew 1024px PNGs scaled down to 100px without a pre-scaled copy, rebuilt every gradient and colour string per frame, and painted several hundred `fillText` calls of digital rain with a `fillStyle` change before each one. See `game/quality.ts` and **Performance on phones** in the README. |
+| 12 | An answer block could be wider than the screen | `ANSWER_BLOCK_MAX_WIDTH` is 380, so on a 375px phone a long option produced a block that could not fit; `updateAnswerBlocks` then pinned it against the left and right edges on the same frame, fighting itself. `measureBlockWidth` now clamps against the canvas width too. |
+| 13 | `viewport-fit: cover` with no safe-area padding | `app/layout.tsx` opts the page into drawing under the notch and home indicator, but no overlay reserved space for them, so the score row sat under the notch on a modern iPhone. The three overlay roots now add `env(safe-area-inset-*)`. |
 | 8 | README documented removed modules and wrong mechanics | It referenced `questions/funny.ts` and `CONFIG.TECH_QUESTION_MIX` (both gone) and said a wrong answer carried "no score penalty" when it costs 8 points. |
 
 ---
@@ -83,6 +86,29 @@ either fire immediately or never. This happened once in the deleted
 re-seeding `lastRealTime`. `frame` receives the real timestamp as its `rt`
 argument; every other timestamp in the codebase comes from the `now`
 parameter threaded down from `frame`.
+
+### 4b. Per-frame work that only had to happen once
+
+Canvas makes rebuilding state look free, because each individual call is
+cheap and nothing warns you. The costs only show up on a slower GPU, which
+is never the machine the code was written on.
+
+**Check:** anything constructed inside a draw routine that does not depend
+on the frame — `createLinearGradient`/`createRadialGradient`, a colour
+string built by concatenation or hex parsing, an image scaled down from a
+much larger source. All four were happening every frame here. A gradient
+defined in a translated local space (centred on `0, 0`) is usually
+identical frame to frame and belongs in `gradients.ts`.
+
+**Check:** `ctx.filter` is not a cheap property. Assigning it makes every
+following draw call render into an offscreen surface and get filtered.
+Count the draws inside the `save`/`restore` that sets it before assuming
+it is one blur.
+
+**Check:** a `fillStyle` assignment is a state flush. Draw calls that share
+a colour should be batched under one assignment — in `background.ts` that
+meant looping trail position on the outside and columns on the inside,
+which looks backwards and cut several hundred state changes to ten.
 
 ### 5. Magic numbers reintroduced next to the config
 

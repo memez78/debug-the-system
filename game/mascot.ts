@@ -1,4 +1,6 @@
 import { CONFIG } from "./config";
+import { cachedGradient } from "./gradients";
+import { shadowBlurPx } from "./quality";
 import type { MascotAnim } from "./types";
 import { clamp, clamp01, lerp } from "./utils";
 
@@ -187,10 +189,7 @@ export class Mascot {
     ctx.translate(x, y);
 
     // ambient glow
-    const glow = ctx.createRadialGradient(0, -displayHeight * 0.55, 6, 0, -displayHeight * 0.55, displayHeight * 0.9);
-    glow.addColorStop(0, hexA(glowColor, 0.32));
-    glow.addColorStop(1, hexA(glowColor, 0));
-    ctx.fillStyle = glow;
+    ctx.fillStyle = auraGradient(ctx, "fly", glowColor, displayHeight, 0.55, 0.9, 0.32);
     ctx.beginPath();
     ctx.arc(0, -displayHeight * 0.55, displayHeight * 0.9, 0, Math.PI * 2);
     ctx.fill();
@@ -198,7 +197,7 @@ export class Mascot {
     ctx.rotate(totalRotation);
     ctx.scale(scaleX, scaleY);
     ctx.shadowColor = glowColor;
-    ctx.shadowBlur = 16;
+    ctx.shadowBlur = shadowBlurPx(16);
 
     if (sprite.complete && sprite.naturalWidth > 0) {
       ctx.drawImage(sprite, -displayWidth / 2, -displayHeight, displayWidth, displayHeight);
@@ -234,11 +233,14 @@ export class Mascot {
     ctx.translate(centerX, feetY - lift);
 
     // big celebratory glow
-    const glow = ctx.createRadialGradient(0, -displayHeight * 0.5, 8, 0, -displayHeight * 0.5, displayHeight * 1.05);
-    glow.addColorStop(0, "rgba(255, 210, 63, 0.42)");
-    glow.addColorStop(0.5, "rgba(255, 210, 63, 0.18)");
-    glow.addColorStop(1, "rgba(255, 210, 63, 0)");
-    ctx.fillStyle = glow;
+    const glowH = Math.round(displayHeight);
+    ctx.fillStyle = cachedGradient(ctx, `cheer:${glowH}`, (c) => {
+      const g = c.createRadialGradient(0, -glowH * 0.5, 8, 0, -glowH * 0.5, glowH * 1.05);
+      g.addColorStop(0, "rgba(255, 210, 63, 0.42)");
+      g.addColorStop(0.5, "rgba(255, 210, 63, 0.18)");
+      g.addColorStop(1, "rgba(255, 210, 63, 0)");
+      return g;
+    });
     ctx.beginPath();
     ctx.arc(0, -displayHeight * 0.5, displayHeight * 1.05, 0, Math.PI * 2);
     ctx.fill();
@@ -246,7 +248,7 @@ export class Mascot {
     ctx.rotate(sway);
     ctx.scale(scaleX, scaleY);
     ctx.shadowColor = "#ffd23f";
-    ctx.shadowBlur = 26;
+    ctx.shadowBlur = shadowBlurPx(26);
     if (sprite.complete && sprite.naturalWidth > 0) {
       ctx.drawImage(sprite, -displayWidth / 2, -displayHeight, displayWidth, displayHeight);
     }
@@ -275,17 +277,14 @@ export class Mascot {
     ctx.globalAlpha = alpha;
     ctx.translate(x, y);
 
-    const glow = ctx.createRadialGradient(0, -displayHeight * 0.5, 6, 0, -displayHeight * 0.5, displayHeight * 0.9);
-    glow.addColorStop(0, hexA(glowColor, 0.3));
-    glow.addColorStop(1, hexA(glowColor, 0));
-    ctx.fillStyle = glow;
+    ctx.fillStyle = auraGradient(ctx, "pose", glowColor, displayHeight, 0.5, 0.9, 0.3);
     ctx.beginPath();
     ctx.arc(0, -displayHeight * 0.5, displayHeight * 0.9, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.rotate(rotation);
     ctx.shadowColor = glowColor;
-    ctx.shadowBlur = 18;
+    ctx.shadowBlur = shadowBlurPx(18);
     ctx.drawImage(sprite, -displayWidth / 2, -displayHeight, displayWidth, displayHeight);
     ctx.restore();
   }
@@ -303,14 +302,20 @@ export class Mascot {
     ctx.translate(x, y - 4);
     ctx.rotate(angle + Math.PI);
 
-    const grad = ctx.createLinearGradient(0, 0, len * flicker, 0);
-    grad.addColorStop(0, "rgba(255, 255, 255, 0.95)");
-    grad.addColorStop(0.25, "rgba(255, 214, 110, 0.9)");
-    grad.addColorStop(0.6, "rgba(255, 140, 60, 0.55)");
-    grad.addColorStop(1, "rgba(255, 90, 60, 0)");
-    ctx.fillStyle = grad;
+    // Flame length varies continuously with speed, so it is bucketed to
+    // whole pixels before it reaches the cache — otherwise every frame
+    // would be a cache miss and a new entry.
+    const flameLen = Math.round(len * flicker);
+    ctx.fillStyle = cachedGradient(ctx, `flame:${flameLen}`, (c) => {
+      const g = c.createLinearGradient(0, 0, Math.max(1, flameLen), 0);
+      g.addColorStop(0, "rgba(255, 255, 255, 0.95)");
+      g.addColorStop(0.25, "rgba(255, 214, 110, 0.9)");
+      g.addColorStop(0.6, "rgba(255, 140, 60, 0.55)");
+      g.addColorStop(1, "rgba(255, 90, 60, 0)");
+      return g;
+    });
     ctx.shadowColor = "#ff9d4d";
-    ctx.shadowBlur = 18;
+    ctx.shadowBlur = shadowBlurPx(18);
     ctx.beginPath();
     ctx.moveTo(0, -width / 2);
     ctx.quadraticCurveTo(len * 0.5 * flicker, 0, len * flicker, 0);
@@ -334,6 +339,33 @@ export class Mascot {
 
     ctx.restore();
   }
+}
+
+/**
+ * The soft aura behind the robot, cached per pose-site, colour and size.
+ *
+ * `glowColor` is one of six constants and `displayHeight` is either fixed
+ * (normal flight) or a function of the window height (the cinematics), so
+ * the key space is small and stable. This replaces a gradient build plus
+ * two hex-parsing string builds on every mascot draw.
+ */
+function auraGradient(
+  ctx: CanvasRenderingContext2D,
+  site: string,
+  glowColor: string,
+  displayHeight: number,
+  centerFrac: number,
+  radiusFrac: number,
+  innerAlpha: number,
+): CanvasGradient {
+  const h = Math.round(displayHeight);
+  return cachedGradient(ctx, `aura:${site}:${glowColor}:${h}`, (c) => {
+    const cy = -h * centerFrac;
+    const g = c.createRadialGradient(0, cy, 6, 0, cy, h * radiusFrac);
+    g.addColorStop(0, hexA(glowColor, innerAlpha));
+    g.addColorStop(1, hexA(glowColor, 0));
+    return g;
+  });
 }
 
 function hexA(hex: string, alpha: number): string {
