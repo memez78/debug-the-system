@@ -71,28 +71,23 @@ export const CONFIG = {
   ANSWER_DRIFT_SPEED_PER_STREAK: 6,
   /** The streak's contribution to drift speed is capped here, px/s. */
   ANSWER_DRIFT_SPEED_STREAK_CAP: 90,
-  /** How strongly a wrong option's color blends toward the correct
-   *  option's color per point of streak — makes decoys look more and
-   *  more like the real answer as the streak grows. 0 = no blend,
-   *  1 = indistinguishable by color alone. */
-  ESCALATION_COLOR_CONVERGENCE_PER_STREAK: 0.07,
-  ESCALATION_COLOR_CONVERGENCE_CAP: 0.85,
-  /** Correct-streak at which the correct block starts getting camouflage
-   *  treatment at all (flicker, jitter, chromatic ghosting). Below this
-   *  it renders completely honestly. */
+  /** Correct-streak at which blocks start getting camouflage treatment at
+   *  all (flicker, jitter, chromatic ghosting). Below this they render
+   *  completely still. Note this applies to EVERY block equally — nothing
+   *  about how a block is drawn may depend on whether it is correct, or the
+   *  answer is readable from across the room. */
   ESCALATION_CAMOUFLAGE_START_STREAK: 3,
   /** Correct-streak at which camouflage intensity reaches its maximum. */
   ESCALATION_CAMOUFLAGE_MAX_STREAK: 13,
   /** At full camouflage intensity, the peak chance in any given instant
-   *  that the correct block is mid-"flicker" (fully swapped to decoy
-   *  styling for a beat). Text stays readable throughout — only the
-   *  block's color/glow swaps — but a glance under pressure won't
-   *  reliably catch it. */
+   *  that a block is mid-"flicker" (its glow pulsing out of step with the
+   *  others). Each block flickers on its own seeded phase, so the field
+   *  reads as unstable rather than as one block behaving oddly. */
   ESCALATION_CAMOUFLAGE_FLICKER_CHANCE: 0.35,
-  /** Max extra jitter amplitude applied to the correct block specifically,
-   *  on top of the scene-wide wobble every block gets, px. */
+  /** Max extra jitter amplitude applied to each block on its own phase, on
+   *  top of the scene-wide wobble, px. */
   ESCALATION_CAMOUFLAGE_JITTER_PX: 5,
-  /** Max chromatic-aberration ghost offset on the correct block, px. */
+  /** Max chromatic-aberration ghost offset on every block, px. */
   ESCALATION_CHROMATIC_MAX_PX: 3,
   /** Max scene-wide canvas blur applied to the answer blocks, px. */
   ESCALATION_BLUR_MAX_PX: 1.6,
@@ -146,10 +141,14 @@ export const CONFIG = {
   /** Minimum score for a tech kit — a real stretch. Also the score at which
    *  the "illusion" escalation (colour shift, viruses, looming moon) kicks in. */
   TECH_KIT_SCORE_THRESHOLD: 150,
-  /** Minimum score for the 10 BD grand prize. Currently 900 = a flawless
-   *  25-answer chain with no wrong taps and no timeouts, while camouflage
-   *  and the illusion layer are ramping up. Hard but genuinely winnable;
-   *  see the note above before changing it. */
+  /** Minimum score for the 10 BD grand prize. Reaching it ENDS THE ROUND
+   *  immediately, however much time is left, and plays the win cinematic —
+   *  the attract screen and the progress bar both advertise this number, so
+   *  it has to be a finish line rather than a mark the score wanders past.
+   *
+   *  Currently 900 = a flawless 25-answer chain with no wrong taps and no
+   *  timeouts, while camouflage and the illusion layer ramp up. Hard, but
+   *  genuinely winnable; see the note above before changing it. */
   BD10_SCORE_THRESHOLD: 900,
 
   // ---- Leaderboard --------------------------------------------------------
@@ -220,13 +219,17 @@ export const CONFIG = {
   SOUND_THRUST_VOLUME: 0.16,
   /** How loud the virus drone gets at full illusion intensity. */
   SOUND_DREAD_VOLUME: 0.22,
-  /** Music level per phase, as a fraction of SOUND_MUSIC_VOLUME. It ducks
-   *  during a round so it sits under the effects rather than competing with
-   *  them, and comes back up on the screens where nothing else is playing. */
+  /** Music level per phase, as a fraction of SOUND_MUSIC_VOLUME.
+   *
+   *  Music plays on the attract screen only. That screen is a loop nobody is
+   *  concentrating on, where a bed of sound is what pulls people over to the
+   *  booth. Everywhere else it competes: a round is dense with cues that
+   *  carry information (streak pitch, countdown, timeouts), the cinematics
+   *  are dialogue, and the result screen is someone reading their score. */
   SOUND_MUSIC_LEVEL_ATTRACT: 1,
-  SOUND_MUSIC_LEVEL_CINEMATIC: 0.7,
-  SOUND_MUSIC_LEVEL_PLAYING: 0.4,
-  SOUND_MUSIC_LEVEL_RESULT: 0.85,
+  SOUND_MUSIC_LEVEL_CINEMATIC: 0,
+  SOUND_MUSIC_LEVEL_PLAYING: 0,
+  SOUND_MUSIC_LEVEL_RESULT: 0,
 
   // ---- Engine internals -----------------------------------------------------
   /** Per-frame delta time is clamped to this many ms, so a dropped frame or

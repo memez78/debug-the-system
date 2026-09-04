@@ -26,6 +26,8 @@ npm run build
 | 5 | The scoring table in `config.ts` was wrong | It documented `N² + 9N` (10, 22, 36…). The streak is incremented *before* points are read, so it is actually `N² + 11N` (12, 26, 42…). That table is what anyone re-tuning the prize thresholds would trust — and it made 10 BD look further away than it is. |
 | 6 | `QuestionCategory` still had a `"funny"` member | The funny pool was deleted; nothing could produce that value any more. |
 | 7 | `questionCategory` was plumbed through six files and never read | Engine → UI state → both overlays → `QuestionBanner`, which destructured `text`, `phase`, `compact` and dropped it. |
+| 9 | **The correct answer was a different colour from the decoys** | `CORRECT_COLOR` vs a wrong colour, plus jitter and chromatic ghosting applied to the correct block *only* — three separate tells. The right answer was identifiable from across the room without reading the question. The escalation had been built on "the correct one looks different, now disguise it", which is backwards; it should never have looked different. |
+| 10 | The prize threshold was not a finish line | The score could pass `BD10_SCORE_THRESHOLD` and the round carried on to the full 120s, while the attract screen and progress bar advertised that number as the win condition. Reaching it now ends the round on the spot and plays the win cinematic. |
 | 8 | README documented removed modules and wrong mechanics | It referenced `questions/funny.ts` and `CONFIG.TECH_QUESTION_MIX` (both gone) and said a wrong answer carried "no score penalty" when it costs 8 points. |
 
 ---
@@ -111,7 +113,26 @@ timer until `GameEngine.fieldBounds()` reserved vertical bands per phase.
 `fieldBounds()` to match, and test at a short window height — the
 `maxReserved` scale-back in that method exists for exactly that case.
 
-### 8. Tests that race the state machine
+### 8. Feedback that leaks the answer
+
+The worst bug in this project's history was cosmetic: the correct answer
+block was tinted differently from the decoys. Every individual decision that
+led there was reasonable — a "correct" colour, a "wrong" colour, and an
+escalation that blends them together as the streak grows — and the result was
+a quiz where you never had to read the question.
+
+**Check:** any function that renders something the player is meant to
+identify must not receive the flag that says which one it is.
+`drawAnswerBlock` takes no `isCorrect` parameter, which makes the mistake
+impossible to make again rather than merely absent today. Where an effect has
+to vary per item, seed it from something orthogonal to correctness
+(`AnswerBlock.seed`).
+
+**Verify it in pixels, not by reading the code.** Sample the rendered canvas
+for each block and compare the correct one against the decoys — at streak 0
+*and* at maximum camouflage, since the two paths differ.
+
+### 9. Tests that race the state machine
 
 Driving the engine from the console silently produced wrong results because
 `beginRound()` resets the score, so setting a score before the phase reached

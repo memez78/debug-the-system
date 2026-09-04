@@ -92,12 +92,24 @@ Inside `playing`, each question cycle is:
    times out unanswered, the streak resets and the next question begins.
 3. Difficulty escalates with the **correct-answer streak**, stacked on top of
    the elapsed-round-time ramp: the answer window shrinks, a 4th decoy
-   appears, blocks drift faster, wrong options converge toward the correct
-   answer's colour, and past `ESCALATION_CAMOUFLAGE_START_STREAK` the correct
-   block itself starts flickering into decoy styling, jittering, and picking
-   up chromatic-aberration ghosting. The question text is never touched by
-   any of this — only the answer blocks and the scene get harder to read.
-4. Once the score passes `CONFIG.TECH_KIT_SCORE_THRESHOLD` the **illusion**
+   appears, blocks drift faster, and past
+   `ESCALATION_CAMOUFLAGE_START_STREAK` every block starts flickering,
+   jittering and picking up chromatic-aberration ghosting on its own seeded
+   phase, so the whole field turns unstable. The question text is never
+   touched by any of this.
+
+   **Nothing about how a block is drawn may depend on whether it is
+   correct.** Every block is one colour (`BLOCK_COLOR`) and gets the same
+   effects. An earlier version tinted the right answer differently and then
+   tried to disguise it as the streak grew, which had it backwards: at a low
+   streak the odd-coloured block simply *was* the answer, readable across the
+   room without reading the question. `drawAnswerBlock` does not receive
+   `isCorrect` at all, and it should stay that way.
+4. Reaching `CONFIG.BD10_SCORE_THRESHOLD` **ends the round immediately**,
+   however much time is left, and plays the win cinematic. That number is
+   advertised on the attract screen and on the progress bar, so it has to be
+   a finish line rather than a mark the score wanders past.
+5. Once the score passes `CONFIG.TECH_KIT_SCORE_THRESHOLD` the **illusion**
    layer (`game/illusion.ts`) ramps in: the scene washes red, viruses drift
    across the field and the moon looms in from the top. It is atmosphere
    only — nothing there is tappable and nothing there affects scoring. It
@@ -126,12 +138,12 @@ the picture.
 and left running with only its gain moved (starting and stopping oscillators
 per frame would click):
 
-- **Background music** — slow, sparse and generative. A four-chord pad
-  (Am-F-C-G) with occasional melody notes drawn from A minor pentatonic, so
-  any note fits any chord and the melody can be random without ever sounding
-  wrong. Roughly one note every two seconds. It ducks during a round so it
-  sits under the effects, and comes back up on the screens where nothing else
-  is playing (`SOUND_MUSIC_LEVEL_*`).
+- **Background music** — **attract screen only.** Slow, sparse and
+  generative: a four-chord pad (Am-F-C-G) with occasional melody notes from A
+  minor pentatonic, so any note fits any chord and the melody can be random
+  without ever sounding wrong. Roughly one note every two seconds. It is a
+  bed of sound to pull people over to the booth; everywhere else it competes
+  with cues that carry information, so it is off (`SOUND_MUSIC_LEVEL_*`).
 - **Thruster** — filtered noise, a roar rather than a tone, riding
   `Mascot.flameIntensity`. That value is computed in `update()` rather than
   in `draw()` so the sound and the drawn flame can never disagree.

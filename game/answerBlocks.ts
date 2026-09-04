@@ -1,16 +1,18 @@
 import { ANSWER_BLOCK_HEIGHT, ANSWER_BLOCK_MAX_WIDTH, ANSWER_BLOCK_MIN_WIDTH, ANSWER_BLOCK_PADDING_X, CONFIG } from "./config";
-import type { AnswerBlock, Question, QuestionCategory } from "./types";
+import type { AnswerBlock, Question } from "./types";
 import { clamp, clamp01, nextId, pick, randRange, shuffle } from "./utils";
 
-export const CORRECT_COLOR = "#2effc7";
-
-const WRONG_COLOR_BY_CATEGORY: Record<QuestionCategory, string> = {
-  tech: "#39d6ff",
-};
-
-export function wrongColorFor(category: QuestionCategory): string {
-  return WRONG_COLOR_BY_CATEGORY[category];
-}
+/**
+ * Every answer block is drawn in this one colour.
+ *
+ * There is deliberately no "correct" colour and no "wrong" colour. An
+ * earlier version tinted the right answer differently and then tried to
+ * disguise it as the streak grew, which had it exactly backwards: at a low
+ * streak the odd-coloured block simply *was* the answer, readable across the
+ * room without reading a word of the question. Nothing about how a block is
+ * drawn may depend on whether it is correct.
+ */
+export const BLOCK_COLOR = "#39d6ff";
 
 const CORRECT_FLASH_FACTS = ["CORRECT!", "NAILED IT", "SYSTEM PATCHED", "NICE CATCH", "DEBUGGED"];
 const WRONG_FLASH_FACTS = ["NOT QUITE", "WRONG BRANCH", "TRY AGAIN", "MISFIRE"];
@@ -133,32 +135,37 @@ export function updateAnswerBlocks(
   }
 }
 
+/**
+ * Draws one answer block.
+ *
+ * This function never reads `b.isCorrect`, and it must stay that way. Every
+ * effect below is either scene-wide or seeded from `b.seed`, which is
+ * assigned at spawn without regard to which option is right — so the
+ * instability escalates with the streak without ever pointing at the answer.
+ */
 export function drawAnswerBlock(
   ctx: CanvasRenderingContext2D,
   b: AnswerBlock,
   now: number,
-  category: QuestionCategory,
   camoIntensity: number,
-  colorConvergence: number,
   font: string,
 ): void {
   const spawnT = clamp01((now - b.spawnedAt) / CONFIG.SPAWN_TWEEN_MS);
   const scale = spawnT < 1 ? easeOutBack(spawnT) : 1;
-  const wrongColor = wrongColorFor(category);
 
-  // scene-wide wobble applies to every block once camouflage kicks in
+  // Scene-wide wobble, applied to every block once camouflage kicks in.
   const wobbleAmp = camoIntensity * CONFIG.ESCALATION_WOBBLE_MAX_PX;
   let drawX = b.x + Math.sin(now / 180 + b.seed) * wobbleAmp;
   let drawY = b.y + Math.cos(now / 150 + b.seed * 1.7) * wobbleAmp;
 
-  let color = b.isCorrect ? CORRECT_COLOR : lerpColor(wrongColor, CORRECT_COLOR, colorConvergence);
+  const color = BLOCK_COLOR;
   let flickering = false;
 
-  if (b.isCorrect && camoIntensity > 0) {
+  if (camoIntensity > 0) {
+    // Each block flickers and jitters on its own seeded phase, so at a high
+    // streak the whole field is unstable and no single block stands out.
     const flickerChance = camoIntensity * CONFIG.ESCALATION_CAMOUFLAGE_FLICKER_CHANCE;
-    const phase = (Math.sin(now / 240 + b.seed) + 1) / 2;
-    flickering = phase < flickerChance;
-    if (flickering) color = wrongColor;
+    flickering = (Math.sin(now / 240 + b.seed) + 1) / 2 < flickerChance;
     const jitterAmp = camoIntensity * CONFIG.ESCALATION_CAMOUFLAGE_JITTER_PX;
     drawX += Math.sin(now / 55 + b.seed * 3) * jitterAmp;
     drawY += Math.cos(now / 47 + b.seed * 5) * jitterAmp;
@@ -173,8 +180,8 @@ export function drawAnswerBlock(
   ctx.translate(drawX, drawY);
   ctx.scale(scale, scale);
 
-  // chromatic-aberration ghosting, correct block only, escalates with streak
-  if (b.isCorrect && camoIntensity > 0) {
+  // Chromatic-aberration ghosting on every block, escalating with the streak.
+  if (camoIntensity > 0) {
     const off = camoIntensity * CONFIG.ESCALATION_CHROMATIC_MAX_PX;
     ctx.globalAlpha = 0.3;
     ctx.fillStyle = "#ff3b3b";
@@ -251,21 +258,3 @@ function hexA(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-function lerpColor(hexFrom: string, hexTo: string, t: number): string {
-  const cf = hexFrom.replace("#", "");
-  const ct = hexTo.replace("#", "");
-  const fr = parseInt(cf.substring(0, 2), 16);
-  const fg = parseInt(cf.substring(2, 4), 16);
-  const fb = parseInt(cf.substring(4, 6), 16);
-  const tr = parseInt(ct.substring(0, 2), 16);
-  const tg = parseInt(ct.substring(2, 4), 16);
-  const tb = parseInt(ct.substring(4, 6), 16);
-  const r = Math.round(fr + (tr - fr) * t);
-  const g = Math.round(fg + (tg - fg) * t);
-  const b = Math.round(fb + (tb - fb) * t);
-  return `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`;
-}
-
-function toHex2(n: number): string {
-  return clamp(n, 0, 255).toString(16).padStart(2, "0");
-}

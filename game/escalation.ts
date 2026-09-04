@@ -8,7 +8,6 @@ export interface Escalation {
   answerCount: number;
   windowMs: number;
   driftSpeed: number;
-  colorConvergence: number;
   /** 0-1: how strongly camouflage effects (flicker/jitter/chromatic/blur/
    * wobble) apply. 0 below ESCALATION_CAMOUFLAGE_START_STREAK. */
   camoIntensity: number;
@@ -25,13 +24,8 @@ export function getEscalation(streak: number, t: number): Escalation {
     lerp(CONFIG.ANSWER_DRIFT_SPEED_START, CONFIG.ANSWER_DRIFT_SPEED_END, t) +
     Math.min(CONFIG.ANSWER_DRIFT_SPEED_STREAK_CAP, CONFIG.ANSWER_DRIFT_SPEED_PER_STREAK * streak);
 
-  const colorConvergence = Math.min(
-    CONFIG.ESCALATION_COLOR_CONVERGENCE_CAP,
-    CONFIG.ESCALATION_COLOR_CONVERGENCE_PER_STREAK * streak,
-  );
-
   const camoRange = Math.max(1, CONFIG.ESCALATION_CAMOUFLAGE_MAX_STREAK - CONFIG.ESCALATION_CAMOUFLAGE_START_STREAK);
   const camoIntensity = clamp01((streak - CONFIG.ESCALATION_CAMOUFLAGE_START_STREAK) / camoRange);
 
-  return { answerCount, windowMs, driftSpeed, colorConvergence, camoIntensity };
+  return { answerCount, windowMs, driftSpeed, camoIntensity };
 }

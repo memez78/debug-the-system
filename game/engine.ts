@@ -103,7 +103,6 @@ export class GameEngine {
   private interludePlayed = false;
   private interludeStartedAt = 0;
   private camoIntensity = 0;
-  private colorConvergence = 0;
 
   private demoActive = false;
   private demoReadEndAt = 0;
@@ -576,6 +575,15 @@ export class GameEngine {
       this.endRound(now);
       return;
     }
+    // Hitting the prize ends the round then and there. The attract screen
+    // and the progress bar both promise "<threshold> for 10 BD", so play has
+    // to stop the moment that is true — otherwise the number is not a target,
+    // it is just a line the score wanders past.
+    if (this.score >= CONFIG.BD10_SCORE_THRESHOLD) {
+      this.endRound(now);
+      return;
+    }
+
     const urgent = timeLeftMs <= CONFIG.URGENT_TIME_SEC * 1000;
     this.mascot.setPanicking(urgent);
     const secLeft = Math.ceil(timeLeftMs / 1000);
@@ -594,7 +602,6 @@ export class GameEngine {
     const t = this.roundProgress(now);
     const esc = getEscalation(streak, t);
     this.camoIntensity = esc.camoIntensity;
-    this.colorConvergence = esc.colorConvergence;
 
     // Illusion pressure ramps in once they cross the tech-kit threshold and
     // maxes out a few hundred points later.
@@ -854,14 +861,13 @@ export class GameEngine {
 
     if (this.answerBlocks.length > 0 && this.currentQuestion) {
       const camo = this.phase === "playing" ? this.camoIntensity : 0;
-      const convergence = this.phase === "playing" ? this.colorConvergence : 0;
       const blurred = camo > 0;
       if (blurred) {
         ctx.save();
         ctx.filter = `blur(${(camo * CONFIG.ESCALATION_BLUR_MAX_PX).toFixed(2)}px)`;
       }
       for (const b of this.answerBlocks) {
-        drawAnswerBlock(ctx, b, now, this.currentQuestion.category, camo, convergence, ANSWER_FONT);
+        drawAnswerBlock(ctx, b, now, camo, ANSWER_FONT);
       }
       if (blurred) ctx.restore();
     }
