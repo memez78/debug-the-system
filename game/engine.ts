@@ -233,8 +233,10 @@ export class GameEngine {
       return;
     }
     if (this.phase === "intro" || this.phase === "interlude" || this.phase === "outro") {
-      // never make an eager player wait — a tap cuts the sequence short
-      this.cinematic.skip();
+      // A tap moves the story on one line rather than skipping the whole
+      // sequence, so a fast reader sets their own pace instead of choosing
+      // between sitting through it and missing it entirely.
+      this.cinematic.advance(this.engineNow);
       return;
     }
     if (this.phase === "playing") {

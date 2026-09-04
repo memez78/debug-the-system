@@ -59,32 +59,39 @@ interface Beat {
   line?: string;
 }
 
+/**
+ * UNIT-01 is a maintenance robot, not a narrator. It has done this job a
+ * hundred times, it is tired, and it is funnier than it means to be. Keep
+ * the lines short, keep the contractions, and let it trail off or cut itself
+ * off — clean, complete, evenly-weighted sentences are what makes dialogue
+ * read as filler.
+ */
 const SCRIPT: Record<CinematicMode, Beat[]> = {
   intro: [
-    { until: T.intro.closeUpIn, caption: "SYSTEM COMPROMISED", line: "That is the campus server. Something got inside it." },
-    { until: 6.4, line: "I am UNIT-01. Debugging broken systems is my whole job." },
-    { until: T.intro.closeUpOut, line: "But this infection spread all the way up to our lunar relay." },
-    { until: T.intro.viruses, line: "Burning for the moon now. That grey rock is where it is hiding." },
-    { until: 14.9, caption: "INFECTION DETECTED", line: "Viruses. Of course they got here first." },
-    { until: T.intro.end, line: "Every answer you get right punches me through one. Let's go!" },
+    { until: T.intro.closeUpIn, caption: "SYSTEM COMPROMISED", line: "Right. The whole campus server is down. Again." },
+    { until: 6.4, line: "Name's UNIT-01. Maintenance. Nobody calls me with good news." },
+    { until: T.intro.closeUpOut, line: "Whatever got in chewed through six firewalls and ran for the moon." },
+    { until: T.intro.viruses, line: "So that's where we're going. Try to keep up." },
+    { until: 14.9, caption: "INFECTION DETECTED", line: "...Oh good. It brought friends." },
+    { until: T.intro.end, line: "I can't out-think these things alone. You answer, I punch. Go." },
   ],
   interlude: [
-    { until: T.interlude.ring, caption: "FIREWALL LAYER BREACHED", line: "Layer one is down. That was clean work from you." },
-    { until: T.interlude.swarm, line: "Here, take a sticker. Booth rules — you earned it." },
-    { until: T.interlude.end, line: "But they felt that. The swarm is waking up, so stay sharp." },
+    { until: T.interlude.ring, caption: "FIREWALL LAYER BREACHED", line: "Layer one's down. Okay. You're actually good at this." },
+    { until: T.interlude.swarm, line: "Take a sticker. I'd give you a medal, but you've seen our budget." },
+    { until: T.interlude.end, line: "Don't get comfortable. They know we're in here now." },
   ],
   outroWin: [
-    { until: T.win.blast, line: "The core is exposed. Punching through it — right now!" },
+    { until: T.win.blast, line: "Core's wide open. Going in — cover me!" },
     { until: T.win.ashes },
-    { until: T.win.money, line: "...did that actually just work?" },
-    { until: 8.6, caption: "10 BD RETRIEVED", line: "Ten BD. You genuinely cracked the system open." },
-    { until: T.win.end, line: "Go claim it at the booth before they reboot everything." },
+    { until: T.win.money, line: "......Huh." },
+    { until: 8.6, caption: "10 BD RETRIEVED", line: "Ten dinars. That was sitting in there the whole time." },
+    { until: T.win.end, line: "Take it. Go. Before somebody files this as an incident." },
   ],
   outroLoss: [
-    { until: T.loss.lunge, line: "There are too many of them coming at me—" },
-    { until: 5.1, line: "Shields are gone. I cannot hold this position—" },
-    { until: 8, caption: "SYSTEM LOST", line: "...falling out of orbit..." },
-    { until: T.loss.end, line: "Run it back. You were closer to it than you think." },
+    { until: T.loss.lunge, line: "There's too many— I can't—" },
+    { until: 5.1, line: "Thrusters are gone. I'm not flying anymore, I'm falling." },
+    { until: 8, caption: "SYSTEM LOST", line: "...tell them I filed the paperwork..." },
+    { until: T.loss.end, line: "Eh. I'll reboot. I always do. Go again?" },
   ],
 };
 
@@ -118,9 +125,28 @@ export class Cinematic {
     this.skipped = false;
   }
 
-  /** Player tapped — cut straight to the end of the sequence. */
-  skip(): void {
-    this.skipped = true;
+  /**
+   * Player tapped: cut to the start of the next beat, or end the sequence if
+   * this was the last one.
+   *
+   * It works by warping the clock forward rather than tracking a separate
+   * beat index, because every visual in here is driven off that same clock —
+   * so the art cuts to the next shot along with the line, instead of the
+   * subtitle running ahead of a picture still playing the previous beat.
+   *
+   * Beats still time out on their own if nobody taps, so an abandoned kiosk
+   * always finds its way back to the attract screen.
+   */
+  advance(now: number): void {
+    if (!this.mode) return;
+    const beats = SCRIPT[this.mode];
+    const clock = (now - this.startedAt) / 1000;
+    const current = beats.find((b) => clock < b.until);
+    if (!current) {
+      this.skipped = true;
+      return;
+    }
+    this.startedAt = now - current.until * 1000;
   }
 
   private durationMs(): number {
@@ -451,7 +477,7 @@ export class Cinematic {
     ctx.font = `700 12px ${CANVAS_FONT_STACK}`;
     ctx.textAlign = "right";
     ctx.fillStyle = "#cfe6ff";
-    ctx.fillText("TAP TO SKIP", width - 22, 26);
+    ctx.fillText("TAP FOR NEXT", width - 22, 26);
     ctx.restore();
   }
 }
