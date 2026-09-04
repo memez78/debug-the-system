@@ -1,10 +1,15 @@
 /**
  * Debug The System — tunable game settings.
  *
- * Every difficulty/economy number the game uses lives here, and nowhere
- * else. These are placeholder estimates (see CLAUDE_CODE_BRIEF.md §7/§8.3)
- * — they MUST be re-tuned from real playtest score data before the event.
- * Nothing here should ever be duplicated as a magic number elsewhere.
+ * Every difficulty and economy number the game uses lives here and nowhere
+ * else. Nothing in this file should ever be duplicated as a magic number
+ * somewhere else in the codebase.
+ *
+ * The prize thresholds are worked out from the scoring maths (see the
+ * reward-tier note further down — read it before touching BD10). Everything
+ * else is a design-time estimate that has not been checked against real
+ * play: run a few rounds with people who are seeing the game for the first
+ * time and adjust from what you observe, not from what looks right here.
  */
 
 export const CONFIG = {
