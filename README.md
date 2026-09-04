@@ -187,13 +187,27 @@ these values.
 **Read the reward-tier comment block in `config.ts` before changing the
 prize thresholds.** The important fact, since real money is attached:
 
-> A flawless chain of N correct answers scores **N² + 11N**. At the current
-> `BD10_SCORE_THRESHOLD` of 900 that is **25 flawless answers**, and because
-> a correct tap resolves its question immediately rather than waiting out the
-> answer window, a confident player cycles a question in roughly 1.5-3s and
-> can attempt 40+ questions inside a 120s round. **The 10 BD prize is
-> genuinely winnable as configured.** Budget for someone claiming it, or
-> raise the threshold (1900 ≈ 40 flawless answers) if it must be a long shot.
+> A flawless chain of N correct answers scores **N² + 11N**. Because that
+> grows with the *square* of an unbroken run, what matters is not how many
+> answers a player gets right but whether they can afford to break their
+> streak. At `BD10_SCORE_THRESHOLD` = 1900:
+>
+> | Path | Answers needed | Time at a 2.4s cycle |
+> |---|---|---|
+> | 1 clean run of 40 | 40 | ~94s |
+> | 2 clean runs of 26 | 52 | ~125s — already over |
+> | 3 clean runs of 21 | 63 | ~151s |
+> | 5 clean runs of 15 | 75 | ~180s |
+>
+> Every forgiving path needs more answers than fit in a 120s round, so the
+> only route left is a near-flawless single run of 40 while the answer window
+> shrinks the whole way. It is **not** hard-blocked — the prize claim stays
+> honest — just priced out of reach.
+>
+> At 900 the opposite was true: five separate runs of nine reached it in 45
+> answers, and since breaking a streak also resets the difficulty escalation,
+> the punishing narrow windows never arrived. Sloppy play was close to a
+> viable strategy. Do not lower this number without redoing that arithmetic.
 
 If you change `BD10_SCORE_THRESHOLD`, re-check `nearMissProgress()` in
 [`game/combo.ts`](game/combo.ts) — the progress bar's non-linear curve is

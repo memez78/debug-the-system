@@ -36,7 +36,9 @@ export function pointsForCombo(combo: number): number {
 export function nearMissProgress(score: number): number {
   const raw = Math.min(1, Math.max(0, score / CONFIG.BD10_SCORE_THRESHOLD));
   if (raw >= 1) return 1;
-  // Steep early, then crawls. Roughly: 50pts→55%, 150→70%, 300→80%, 450→87%.
+  // Steep early, then crawls. Against the current BD10_SCORE_THRESHOLD:
+  //   50pts→48%, 150→60%, 400→73%, 900→86%, 1400→94%.
+  // So a genuinely strong run sits in the high 80s and feels a hair away.
   // Capped just shy of full so the bar never lies about a win.
   return Math.min(0.97, Math.pow(raw, 0.2));
 }

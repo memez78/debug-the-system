@@ -128,13 +128,25 @@ export const CONFIG = {
   // Sticker and tech-kit are meant to be genuinely reachable — they're the
   // booth's conversation hooks.
   //
-  // BD10 IS REACHABLE AS CONFIGURED. At 900 it takes exactly 25 flawless
-  // answers, and because a correct tap resolves its question immediately
-  // (rather than waiting the answer window out) a confident player cycles a
-  // question in roughly 1.5-3s — comfortably 40+ questions inside a 120s
-  // round. Treat 900 as a real, claimable prize. To price it out of reach
-  // instead, raise this threshold (1900 ≈ 40 flawless answers) and re-check
-  // nearMissProgress() in game/combo.ts, which is tuned against it.
+  // BD10 is deliberately priced just past the practical ceiling of a 120s
+  // round. The number that matters is not "how many correct answers" but
+  // "how many correct answers, and can they be split up":
+  //
+  //   1 clean run of 40  = 1908 pts, 40 answers  (~94s at a 2.4s cycle)
+  //   2 clean runs of 26 = 1924 pts, 52 answers  (~125s — already too slow)
+  //   3 clean runs of 21 = 2016 pts, 63 answers  (~151s)
+  //   5 clean runs of 15 = 1950 pts, 75 answers  (~180s)
+  //
+  // That is the whole point of 1900. Because score grows with the square of
+  // an unbroken run, every forgiving path needs more answers than fit in the
+  // round — so the only route left is a near-flawless single run of 40 under
+  // a window that is shrinking the whole way. At 900 the opposite was true:
+  // five separate runs of nine got there in 45 answers, and since a broken
+  // streak also resets the escalation, the punishing windows never arrived.
+  //
+  // It is NOT hard-blocked, so the prize claim stays honest — just priced
+  // out of reach. If you change it, re-check nearMissProgress() in
+  // game/combo.ts, which is tuned against this number.
   /** Minimum score for a sticker — a handful of correct answers. Also the
    *  trigger for the mid-round cinematic. Deliberately low-friction. */
   STICKER_SCORE_THRESHOLD: 50,
@@ -146,10 +158,8 @@ export const CONFIG = {
    *  the attract screen and the progress bar both advertise this number, so
    *  it has to be a finish line rather than a mark the score wanders past.
    *
-   *  Currently 900 = a flawless 25-answer chain with no wrong taps and no
-   *  timeouts, while camouflage and the illusion layer ramp up. Hard, but
-   *  genuinely winnable; see the note above before changing it. */
-  BD10_SCORE_THRESHOLD: 900,
+   *  See the note above for why this is 1900 and not something lower. */
+  BD10_SCORE_THRESHOLD: 1900,
 
   // ---- Leaderboard --------------------------------------------------------
   /** Entries kept in the local daily leaderboard. */
