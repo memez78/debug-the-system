@@ -21,7 +21,7 @@ import {
   updateFloatingTexts,
   updateParticles,
 } from "./particles";
-import { drawPrizeNote } from "./prizeNote";
+import { drawPrizeNote, prizeNoteWidth } from "./prizeNote";
 import { backingScale, QualityGovernor, RENDER_QUALITY } from "./quality";
 import { pickNextQuestion } from "./questions";
 import { Sound } from "./sound";
@@ -45,6 +45,9 @@ const MONO_FONT = CANVAS_FONT_STACK;
  * ms. Must comfortably outlast React committing a new banner, and is shorter
  * than CONFIG.QUESTION_READ_MS so it has settled before answers spawn. */
 const HUD_MEASURE_WINDOW_MS = 250;
+
+/** Clear space kept between the prize note and the canvas edge, px. */
+const PRIZE_NOTE_EDGE_MARGIN_PX = 12;
 
 function computeTier(score: number): RewardTier {
   if (score >= CONFIG.BD10_SCORE_THRESHOLD) return "bd10";
@@ -824,9 +827,16 @@ export class GameEngine {
       this.prizeNote.phaseAt = now;
     }
     if (!this.prizeNote && !this.demoActive && now >= this.nextPrizeNoteAt) {
+      // Dropped into a side gutter so it does not land on the headline. On a
+      // narrow screen the gutters are too small to hold it, so the position
+      // is clamped to whatever keeps the whole note on screen — which on a
+      // phone collapses to roughly the middle. That is fine: the note and
+      // the demo never share the screen, so the centre is free.
       const leftSide = Math.random() < 0.5;
+      const halfNote = prizeNoteWidth(this.width) / 2 + PRIZE_NOTE_EDGE_MARGIN_PX;
+      const wanted = this.width * (leftSide ? 0.16 + Math.random() * 0.12 : 0.72 + Math.random() * 0.12);
       this.prizeNote = {
-        x: this.width * (leftSide ? 0.16 + Math.random() * 0.12 : 0.72 + Math.random() * 0.12),
+        x: clamp(wanted, halfNote, Math.max(halfNote, this.width - halfNote)),
         y: this.height * (0.6 + Math.random() * 0.14),
         phase: "drop",
         phaseAt: now,
@@ -953,7 +963,7 @@ export class GameEngine {
       const elapsed = now - note.phaseAt;
       const dropT = note.phase === "drop" ? elapsed / CONFIG.PRIZE_NOTE_DROP_MS : 1;
       const alpha = note.phase === "fade" ? 1 - clamp01(elapsed / CONFIG.PRIZE_NOTE_FADE_MS) : 1;
-      drawPrizeNote(ctx, note.x, note.y, dropT, alpha, this.mascot.idleClock);
+      drawPrizeNote(ctx, note.x, note.y, dropT, alpha, this.mascot.idleClock, this.width);
     }
 
     // The mascot flies to wherever the player last pointed — which is, by

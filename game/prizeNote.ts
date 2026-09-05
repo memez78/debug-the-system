@@ -15,8 +15,19 @@ import { clamp01 } from "./utils";
  */
 
 const NOTE_ASPECT = 600 / 281;
-const DISPLAY_WIDTH = 320;
-const DISPLAY_HEIGHT = DISPLAY_WIDTH / NOTE_ASPECT;
+const DISPLAY_MAX_WIDTH = 320;
+
+/**
+ * Drawn width for a viewport.
+ *
+ * A fixed 320px note hangs off the edge of a 375px phone: it is dropped into
+ * a side gutter, so its centre sits around x=60 and 100px of it is simply
+ * not on screen. Capping it to a fraction of a narrow viewport keeps the
+ * whole note visible, and the max keeps the booth kiosk exactly as it was.
+ */
+export function prizeNoteWidth(viewportWidth: number): number {
+  return Math.min(DISPLAY_MAX_WIDTH, viewportWidth * 0.62);
+}
 
 let noteImage: HTMLImageElement | null = null;
 
@@ -35,9 +46,20 @@ function easeOutBack(t: number): number {
 }
 
 /** @param dropT 0-1 drop-and-settle progress (eased internally). */
-export function drawPrizeNote(ctx: CanvasRenderingContext2D, x: number, y: number, dropT: number, alpha: number, idleClock: number): void {
+export function drawPrizeNote(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  dropT: number,
+  alpha: number,
+  idleClock: number,
+  viewportWidth: number,
+): void {
   const img = getNoteImage();
   if (!img.complete || img.naturalWidth === 0) return;
+
+  const displayWidth = prizeNoteWidth(viewportWidth);
+  const displayHeight = displayWidth / NOTE_ASPECT;
 
   const settle = easeOutBack(clamp01(dropT));
   const scale = Math.min(1, settle);
@@ -54,8 +76,11 @@ export function drawPrizeNote(ctx: CanvasRenderingContext2D, x: number, y: numbe
   // Soft glow only — nothing else behind the note, so it never reads as a
   // card. The shimmer rides on globalAlpha rather than being baked into a
   // colour stop, which keeps the gradient itself constant and cacheable.
-  const glowRadius = DISPLAY_WIDTH * 0.72;
-  ctx.fillStyle = cachedGradient(ctx, "prizeNote", (c) => {
+  const glowRadius = displayWidth * 0.72;
+  // The radius now varies with the viewport, so it has to be part of the key
+  // — see the note in gradients.ts. Rounded, so a resize cannot fill the
+  // cache with near-identical entries.
+  ctx.fillStyle = cachedGradient(ctx, `prizeNote:${Math.round(glowRadius)}`, (c) => {
     const g = c.createRadialGradient(0, 0, 4, 0, 0, glowRadius);
     g.addColorStop(0, "rgba(255, 210, 63, 0.4)");
     g.addColorStop(1, "rgba(255, 210, 63, 0)");
@@ -70,7 +95,7 @@ export function drawPrizeNote(ctx: CanvasRenderingContext2D, x: number, y: numbe
   ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
   ctx.shadowBlur = shadowBlurPx(16);
   ctx.shadowOffsetY = 4;
-  ctx.drawImage(img, -DISPLAY_WIDTH / 2, -DISPLAY_HEIGHT / 2, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+  ctx.drawImage(img, -displayWidth / 2, -displayHeight / 2, displayWidth, displayHeight);
 
   ctx.restore();
 }
