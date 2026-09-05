@@ -22,6 +22,7 @@ import {
   updateParticles,
 } from "./particles";
 import { drawPrizeNote } from "./prizeNote";
+import { backingScale, QualityGovernor, RENDER_QUALITY } from "./quality";
 import { pickNextQuestion } from "./questions";
 import { Sound } from "./sound";
 import { addLeaderboardEntry, getTodaysLeaderboard, qualifiesForLeaderboard } from "./storage";
@@ -125,6 +126,10 @@ export class GameEngine {
 
   private shake = 0;
 
+  /** Watches real frame times and drops the render tier if the device
+   * cannot hold the budget. Purely cosmetic — see game/quality.ts. */
+  private quality = new QualityGovernor();
+
   private answerBlocks: AnswerBlock[] = [];
   private particles: Particle[] = [];
   private floatingTexts: FloatingText[] = [];
@@ -199,8 +204,17 @@ export class GameEngine {
   attach(canvas: HTMLCanvasElement): void {
     this.destroyed = false;
     this.canvas = canvas;
-    this.ctx = canvas.getContext("2d");
+    // `alpha: false` lets the compositor skip per-pixel blending of the
+    // whole canvas against the page behind it — a real saving at phone
+    // resolutions. It is safe because every frame paints the full surface:
+    // the normal path opens with ParallaxBackground.draw and the cinematic
+    // path with its own full-screen backdrop fill.
+    this.ctx = canvas.getContext("2d", { alpha: false });
     if (!this.ctx) return;
+
+    // Before the first resize, so the backing store is sized from the tier
+    // this device is starting on.
+    this.quality.start();
 
     this.resizeObserver = new ResizeObserver(() => this.handleResize());
     this.resizeObserver.observe(canvas);
@@ -266,7 +280,7 @@ export class GameEngine {
   private handleResize(): void {
     if (!this.canvas || !this.ctx) return;
     const rect = this.canvas.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = backingScale();
     this.width = Math.max(1, Math.round(rect.width));
     this.height = Math.max(1, Math.round(rect.height));
     this.dpr = dpr;
@@ -503,6 +517,12 @@ export class GameEngine {
     this.illusion.reset();
     this.interludePlayed = false;
     this.lastUrgentTickSec = -1;
+    // Neither of these can appear for a while yet, and together they are
+    // most of the game's image weight — so they are fetched here rather
+    // than at page load, where they would only slow the first paint on a
+    // phone. Starting now gives them the length of the round to arrive.
+    this.illusion.preload();
+    this.cinematic.preloadOutroArt();
     this.mascot.setPanicking(false);
     this.sound.roundStart();
     this.startQuestion(this.engineNow);
@@ -869,6 +889,11 @@ export class GameEngine {
     } else this.updateResult(now);
 
     this.render(now);
+
+    // Measured on the real elapsed time, not the clamped engine delta — the
+    // whole point is to notice frames that ran long. A tier change resizes
+    // the backing store, so the canvas has to be rebuilt to match.
+    if (this.quality.sample(realDt)) this.handleResize();
   };
 
   /**
@@ -939,7 +964,13 @@ export class GameEngine {
 
     if (this.answerBlocks.length > 0 && this.currentQuestion) {
       const camo = this.phase === "playing" ? this.camoIntensity : 0;
-      const blurred = camo > 0;
+      // Setting ctx.filter makes the browser render every following draw
+      // call into a scratch surface and blur it — roughly eight of them per
+      // block, four blocks, every frame. It is by far the most expensive
+      // thing in this renderer and the first thing the low tier gives up.
+      // The other four camouflage effects (flicker, jitter, chromatic
+      // ghosting, wobble) are unaffected and still escalate with the streak.
+      const blurred = camo > 0 && RENDER_QUALITY.canvasBlur;
       if (blurred) {
         ctx.save();
         ctx.filter = `blur(${(camo * CONFIG.ESCALATION_BLUR_MAX_PX).toFixed(2)}px)`;

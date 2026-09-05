@@ -1,3 +1,4 @@
+import { scaledSprite } from "./sprites";
 import { clamp01, lerp, randRange } from "./utils";
 
 /**
@@ -30,10 +31,30 @@ function load(src: string): HTMLImageElement {
 }
 
 export class Illusion {
-  private viruses: HTMLImageElement[] = VIRUS_SRC.map(load);
-  private moon = load(MOON_SRC);
+  /** Loaded on demand — see preload(). */
+  private viruses: HTMLImageElement[] = [];
+  private moon: HTMLImageElement | null = null;
   private field: FieldVirus[] = [];
   private clock = 0;
+  /** Rebuilt only when the canvas changes size; see drawFront. */
+  private vignette: CanvasGradient | null = null;
+  private vignetteW = 0;
+  private vignetteH = 0;
+
+  /**
+   * Starts fetching this layer's art.
+   *
+   * It is about 2.5MB of PNG for something that cannot appear until a
+   * player is past the tech-kit threshold, so it is deliberately not
+   * fetched as part of loading the page — on a phone on mobile data that
+   * is a slower first paint in exchange for nothing. The engine calls this
+   * when a round begins, which leaves the whole early game as headroom.
+   */
+  preload(): void {
+    if (this.moon) return;
+    this.viruses = VIRUS_SRC.map(load);
+    this.moon = load(MOON_SRC);
+  }
 
   reset(): void {
     this.field = [];
@@ -43,7 +64,7 @@ export class Illusion {
   /** @param intensity 0-1 — how far past the trigger score the player is. */
   update(dtSec: number, intensity: number, width: number, height: number): void {
     this.clock += dtSec;
-    if (intensity <= 0) {
+    if (intensity <= 0 || this.viruses.length === 0) {
       if (this.field.length) this.field = [];
       return;
     }
@@ -105,7 +126,7 @@ export class Illusion {
     ctx.restore();
 
     // the moon looms in from the top, closer the deeper they get
-    if (this.moon.complete && this.moon.naturalWidth > 0) {
+    if (this.moon && this.moon.complete && this.moon.naturalWidth > 0) {
       const moonSize = lerp(height * 0.7, height * 1.5, t);
       const cx = width * 0.5 + Math.sin(this.clock * 0.35) * width * 0.04;
       const cy = lerp(-moonSize * 0.85, -moonSize * 0.42, t) + Math.sin(this.clock * 0.6) * 10;
@@ -115,12 +136,18 @@ export class Illusion {
       ctx.restore();
     }
 
-    // viruses drifting across the field
+    // Viruses drifting across the field.
+    //
+    // Drawn from a pre-scaled copy rather than the source PNG. The art is
+    // 1024x1024 and lands on screen at 50-150px, so every frame was asking
+    // the browser to resample a million source pixels per virus, six of
+    // them, with no mipmap to help — one of the most expensive things a 2D
+    // canvas can be asked to do on a phone.
     ctx.save();
     ctx.globalAlpha = 0.55 + 0.4 * t;
     for (const v of this.field) {
-      const img = this.viruses[v.img];
-      if (!img.complete || img.naturalWidth === 0) continue;
+      const img = scaledSprite(this.viruses[v.img], v.size);
+      if (!img) continue;
       ctx.save();
       ctx.translate(v.x, v.y);
       ctx.rotate(Math.sin(this.clock * v.spin) * 0.25);
@@ -134,11 +161,21 @@ export class Illusion {
   drawFront(ctx: CanvasRenderingContext2D, intensity: number, width: number, height: number): void {
     if (intensity <= 0) return;
     const t = clamp01(intensity);
-    const vig = ctx.createRadialGradient(width / 2, height / 2, height * 0.42, width / 2, height / 2, height * 0.95);
-    vig.addColorStop(0, "rgba(0,0,0,0)");
-    vig.addColorStop(1, `rgba(60, 0, 10, ${0.3 + 0.4 * t})`);
+    // The gradient's geometry depends only on the canvas size, and its
+    // alpha ramp is reproduced with globalAlpha instead of being baked into
+    // a colour stop — so one gradient object serves every frame and every
+    // intensity, rebuilt only on resize.
+    if (!this.vignette || this.vignetteW !== width || this.vignetteH !== height) {
+      const vig = ctx.createRadialGradient(width / 2, height / 2, height * 0.42, width / 2, height / 2, height * 0.95);
+      vig.addColorStop(0, "rgba(60, 0, 10, 0)");
+      vig.addColorStop(1, "rgba(60, 0, 10, 1)");
+      this.vignette = vig;
+      this.vignetteW = width;
+      this.vignetteH = height;
+    }
     ctx.save();
-    ctx.fillStyle = vig;
+    ctx.globalAlpha = 0.3 + 0.4 * t;
+    ctx.fillStyle = this.vignette;
     ctx.fillRect(0, 0, width, height);
     ctx.restore();
   }

@@ -259,10 +259,61 @@ tech-kit tier is a stretch, and the 10 BD tier lands wherever you want it.
   - `illusion.ts` — the late-round red/virus/moon atmosphere layer.
   - `config.ts` — every tunable number. `canvasFont.ts` — the canvas font
     stack (canvas cannot resolve CSS `var()`, so it must be concrete).
+  - `quality.ts` — the render tier (see **Performance on phones** below).
+    `sprites.ts` — pre-scaled copies of the oversized PNGs.
+    `gradients.ts` — the shared canvas-gradient cache.
 - `components/` — the React/DOM layer: mounts the canvas and renders the
   attract/HUD/result/name-entry overlays on top by subscribing to the
   engine's state through `useSyncExternalStore`.
 - `app/` — the Next.js App Router shell (one route).
+
+## Performance on phones
+
+The booth kiosk and a student's phone run the same game at the same
+difficulty; what differs is how expensively the scene is painted.
+`game/quality.ts` picks a **render tier** — `high` or `low` — from what the
+device advertises (a coarse pointer *plus* a small viewport, few cores, or
+little memory), then keeps watching real frame times and drops to `low` if
+the frames say so. The downgrade is one-way: letting it climb back would
+bring back the cost that caused it, and the renderer would oscillate between
+two looks for the rest of the round.
+
+What the low tier changes, all of it cosmetic:
+
+- **No scene-wide `ctx.filter` blur** on the answer blocks. Setting
+  `ctx.filter` makes the browser render every following draw call into a
+  scratch surface and blur it — roughly eight per block, four blocks, sixty
+  times a second. It was by far the most expensive thing in the frame.
+- **No `ctx.shadowBlur`.** The blocks and the mascot also carry a
+  radial-gradient glow, which is not a shadow, so the neon look survives.
+- **Half-density digital rain**, the biggest source of draw calls in an
+  otherwise idle frame.
+- **A 1.5x backing store instead of 2x** — roughly half the pixels per frame
+  on a 3x phone.
+
+**The blur is the one thing a player could notice**, because it is one of the
+five camouflage effects that escalate with the streak. The other four —
+flicker, jitter, chromatic ghosting and wobble — are untouched in both
+tiers, and as always none of them may vary with whether a block is the
+correct answer (see `drawAnswerBlock`). Nothing else about difficulty,
+scoring or the question mechanic differs between tiers.
+
+Independent of the tier, three things were costing far more than they were
+worth and are now fixed for every device:
+
+- The cinematic and illusion art is authored at 1024px and lands on screen
+  at a fraction of that. Drawing it straight from the source made the
+  browser resample a million pixels per sprite per frame; `sprites.ts`
+  scales each one once and blits the copy.
+- About 6.4MB of that art — the four server frames and the illusion layer —
+  cannot appear until a round is under way, so it is no longer fetched
+  before the attract screen can be tapped. It loads when a round begins,
+  which gives it the whole round to arrive over mobile data.
+- Gradients, and the colour strings feeding them, were rebuilt every frame
+  from arguments that never change. They are cached in `gradients.ts`.
+
+All the tier numbers live with everything else in `game/config.ts`, under
+**Rendering performance**.
 
 ## Robustness notes
 
