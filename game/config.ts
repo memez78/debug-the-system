@@ -252,11 +252,45 @@ export const CONFIG = {
   MAX_FRAME_DT_MS: 100,
 } as const;
 
-/** Answer block layout, CSS px. Width is measured from the option text and
- * clamped to this range; height is fixed. Sized generously (3-4 options
- * max on screen at once) so they read clearly from booth distance. */
-export const ANSWER_BLOCK_HEIGHT = 84;
-export const ANSWER_BLOCK_MIN_WIDTH = 180;
-export const ANSWER_BLOCK_MAX_WIDTH = 380;
-export const ANSWER_BLOCK_PADDING_X = 32;
-export const ANSWER_BLOCK_FONT_PX = 25;
+/**
+ * At or below this viewport width the game switches to its narrow layout.
+ *
+ * Set above a portrait tablet (768px), not just a phone: the desktop layout
+ * gives each block only width/count of room, which at 768px with four
+ * options is 192px against blocks up to 380px wide — overlapping by
+ * construction. The booth kiosk is far wider and is unaffected by any of it.
+ */
+export const PHONE_MAX_WIDTH_PX = 820;
+
+/**
+ * Answer block layout, CSS px. Width is measured from the option text and
+ * clamped to the range; height is fixed per layout.
+ *
+ * DESKTOP is the booth sizing and must not change — blocks are sized
+ * generously so they read from across a room.
+ *
+ * PHONE exists because the desktop numbers are impossible on a narrow
+ * screen: a 380px block does not fit inside a 375px viewport at all, and
+ * three of them scattered into columns of width/3 overlap by construction.
+ * See `blockMetrics` in game/answerBlocks.ts.
+ */
+export const ANSWER_BLOCK_DESKTOP = {
+  height: 84,
+  minWidth: 180,
+  maxWidth: 380,
+  paddingX: 32,
+  fontPx: 25,
+  /** Scatter freely in columns; there is room for blocks to pass each other. */
+  stacked: false,
+} as const;
+
+export const ANSWER_BLOCK_PHONE = {
+  height: 62,
+  minWidth: 150,
+  maxWidth: 340,
+  paddingX: 18,
+  fontPx: 18,
+  /** One block per row, drifting sideways only, so two can never overlap on
+   *  a screen that has no room for them to avoid each other. */
+  stacked: true,
+} as const;

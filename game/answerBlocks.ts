@@ -1,6 +1,29 @@
-import { ANSWER_BLOCK_HEIGHT, ANSWER_BLOCK_MAX_WIDTH, ANSWER_BLOCK_MIN_WIDTH, ANSWER_BLOCK_PADDING_X, CONFIG } from "./config";
+import { ANSWER_BLOCK_DESKTOP, ANSWER_BLOCK_PHONE, CONFIG, PHONE_MAX_WIDTH_PX } from "./config";
+import { CANVAS_FONT_STACK } from "./canvasFont";
 import type { AnswerBlock, Question } from "./types";
 import { clamp, clamp01, nextId, pick, randRange, shuffle } from "./utils";
+
+export type BlockMetrics = typeof ANSWER_BLOCK_DESKTOP | typeof ANSWER_BLOCK_PHONE;
+
+/** Minimum clear space between two stacked rows, px. */
+const STACK_MIN_GAP = 10;
+
+/**
+ * Block sizing for a viewport width.
+ *
+ * On a phone the desktop numbers cannot work: a 380px block is wider than a
+ * 375px screen, and `layoutPositions` gives each block only width/count of
+ * room, so three of them overlap before anything has even moved. The phone
+ * layout shrinks the blocks and stacks them one per row instead.
+ */
+export function blockMetrics(viewportWidth: number): BlockMetrics {
+  return viewportWidth <= PHONE_MAX_WIDTH_PX ? ANSWER_BLOCK_PHONE : ANSWER_BLOCK_DESKTOP;
+}
+
+/** The canvas font for a given block text size. */
+export function blockFont(fontPx: number): string {
+  return `700 ${fontPx}px ${CANVAS_FONT_STACK}`;
+}
 
 /**
  * Every answer block is drawn in this one colour.
@@ -37,10 +60,17 @@ export function selectOptions(q: Question, count: number): { texts: string[]; co
   };
 }
 
-export function measureBlockWidth(ctx: CanvasRenderingContext2D, text: string, font: string): number {
-  ctx.font = font;
-  const w = ctx.measureText(text).width + ANSWER_BLOCK_PADDING_X * 2;
-  return clamp(w, ANSWER_BLOCK_MIN_WIDTH, ANSWER_BLOCK_MAX_WIDTH);
+export function measureBlockWidth(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  m: BlockMetrics,
+  viewportWidth: number,
+): number {
+  ctx.font = blockFont(m.fontPx);
+  const w = ctx.measureText(text).width + m.paddingX * 2;
+  // Never wider than the screen it has to sit on, whatever the metrics say.
+  const maxWidth = Math.min(m.maxWidth, viewportWidth - 20);
+  return clamp(w, Math.min(m.minWidth, maxWidth), maxWidth);
 }
 
 /** The band answer blocks are allowed to live in. The top margin has to
@@ -52,20 +82,45 @@ export interface FieldBounds {
   bottom: number;
 }
 
-/** Scatters `count` block positions across the play field, inside `bounds`. */
+/**
+ * Places `count` blocks inside `bounds`.
+ *
+ * Wide screens scatter them into columns, which is what makes the field feel
+ * alive. Narrow screens cannot: a column is only width/count across, far
+ * narrower than a block, so scattering guarantees overlap. There they get one
+ * row each instead — no horizontal competition, and rows that cannot cross.
+ */
 export function layoutPositions(
   count: number,
   width: number,
   height: number,
   bounds: FieldBounds,
+  m: BlockMetrics,
 ): { x: number; y: number }[] {
-  const topMargin = bounds.top;
-  const bottomMargin = bounds.bottom;
-  const usableHeight = Math.max(90, height - topMargin - bottomMargin);
+  const usableHeight = Math.max(90, height - bounds.top - bounds.bottom);
+
+  if (m.stacked) {
+    const minRow = m.height + STACK_MIN_GAP;
+    let rowHeight = usableHeight / count;
+    let top = bounds.top;
+    if (rowHeight < minRow) {
+      // Not enough room for this many rows at a readable spacing. Space them
+      // at the minimum anyway and pull the stack upward to fit: encroaching
+      // on a margin is a lot better than two answers printed on top of each
+      // other, which is unreadable rather than merely tight.
+      rowHeight = minRow;
+      top = Math.max(8, bounds.top - (count * minRow - usableHeight));
+    }
+    return Array.from({ length: count }, (_, i) => ({
+      x: width / 2,
+      y: top + rowHeight * (i + 0.5),
+    }));
+  }
+
   const colWidth = width / count;
   const positions = Array.from({ length: count }, (_, i) => ({
     x: colWidth * i + colWidth * randRange(0.22, 0.78),
-    y: topMargin + usableHeight * randRange(0.1, 0.9),
+    y: bounds.top + usableHeight * randRange(0.1, 0.9),
   }));
   return shuffle(positions);
 }
@@ -77,24 +132,40 @@ export function spawnAnswerBlocks(
   windowMs: number,
   driftSpeed: number,
   now: number,
-  font: string,
   width: number,
   height: number,
   bounds: FieldBounds,
 ): AnswerBlock[] {
   const { texts, correctIdx } = selectOptions(question, count);
-  const positions = layoutPositions(texts.length, width, height, bounds);
+  const m = blockMetrics(width);
+  const positions = layoutPositions(texts.length, width, height, bounds, m);
   return texts.map((text, i) => {
-    const angle = randRange(0, Math.PI * 2);
+    const blockWidth = measureBlockWidth(ctx, text, m, width);
+    let vx: number;
+    let vy: number;
+    if (m.stacked) {
+      // Rows drift sideways only, so no two blocks can ever meet. If a block
+      // is nearly as wide as the screen there is nowhere to drift to, and
+      // jittering against the walls looks broken — so it just sits still.
+      const room = width - 16 - blockWidth;
+      vx = room < 40 ? 0 : (Math.random() < 0.5 ? -1 : 1) * driftSpeed;
+      vy = 0;
+    } else {
+      const angle = randRange(0, Math.PI * 2);
+      vx = Math.cos(angle) * driftSpeed;
+      vy = Math.sin(angle) * driftSpeed;
+    }
     return {
       id: nextId(),
       text,
       isCorrect: i === correctIdx,
       x: positions[i].x,
       y: positions[i].y,
-      vx: Math.cos(angle) * driftSpeed,
-      vy: Math.sin(angle) * driftSpeed,
-      width: measureBlockWidth(ctx, text, font),
+      vx,
+      vy,
+      width: blockWidth,
+      height: m.height,
+      fontPx: m.fontPx,
       spawnedAt: now,
       expiresAt: now + windowMs,
       seed: Math.random() * 1000,
@@ -117,7 +188,7 @@ export function updateAnswerBlocks(
     b.x += b.vx * dtSec;
     b.y += b.vy * dtSec;
     const halfW = b.width / 2;
-    const halfH = ANSWER_BLOCK_HEIGHT / 2;
+    const halfH = b.height / 2;
     if (b.x - halfW < 8) {
       b.x = 8 + halfW;
       b.vx = Math.abs(b.vx);
@@ -148,7 +219,6 @@ export function drawAnswerBlock(
   b: AnswerBlock,
   now: number,
   camoIntensity: number,
-  font: string,
 ): void {
   const spawnT = clamp01((now - b.spawnedAt) / CONFIG.SPAWN_TWEEN_MS);
   const scale = spawnT < 1 ? easeOutBack(spawnT) : 1;
@@ -174,7 +244,7 @@ export function drawAnswerBlock(
   const lifeT = clamp01((now - b.spawnedAt) / (b.expiresAt - b.spawnedAt));
   const remaining = 1 - lifeT;
   const halfW = b.width / 2;
-  const halfH = ANSWER_BLOCK_HEIGHT / 2;
+  const halfH = b.height / 2;
 
   ctx.save();
   ctx.translate(drawX, drawY);
@@ -185,10 +255,10 @@ export function drawAnswerBlock(
     const off = camoIntensity * CONFIG.ESCALATION_CHROMATIC_MAX_PX;
     ctx.globalAlpha = 0.3;
     ctx.fillStyle = "#ff3b3b";
-    roundRectPath(ctx, -halfW - off, -halfH, b.width, ANSWER_BLOCK_HEIGHT, 12);
+    roundRectPath(ctx, -halfW - off, -halfH, b.width, b.height, 12);
     ctx.fill();
     ctx.fillStyle = "#39d6ff";
-    roundRectPath(ctx, -halfW + off, -halfH, b.width, ANSWER_BLOCK_HEIGHT, 12);
+    roundRectPath(ctx, -halfW + off, -halfH, b.width, b.height, 12);
     ctx.fill();
     ctx.globalAlpha = 1;
   }
@@ -208,7 +278,7 @@ export function drawAnswerBlock(
   ctx.shadowColor = color;
   ctx.shadowBlur = flickering ? 22 : 16;
   ctx.lineWidth = 3;
-  roundRectPath(ctx, -halfW, -halfH, b.width, ANSWER_BLOCK_HEIGHT, 14);
+  roundRectPath(ctx, -halfW, -halfH, b.width, b.height, 14);
   ctx.fill();
   ctx.stroke();
 
@@ -225,11 +295,11 @@ export function drawAnswerBlock(
   ctx.fillStyle = "#eafff5";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = font;
+  ctx.font = blockFont(b.fontPx);
   // maxWidth guarantees a long option is condensed to fit rather than
-  // spilling outside the block, since block width is clamped to
-  // ANSWER_BLOCK_MAX_WIDTH no matter how long the text is.
-  ctx.fillText(b.text, 0, 1, b.width - ANSWER_BLOCK_PADDING_X);
+  // spilling outside the block, since block width is clamped no matter how
+  // long the text is.
+  ctx.fillText(b.text, 0, 1, b.width * 0.9);
 
   ctx.restore();
 }

@@ -1,6 +1,6 @@
 import { CANVAS_FONT_STACK } from "./canvasFont";
 import type { Mascot, SpriteKey } from "./mascot";
-import { clamp01, lerp } from "./utils";
+import { clamp, clamp01, lerp } from "./utils";
 
 /**
  * Intro / interlude / outro cinematic layer. Purely presentational — it
@@ -494,7 +494,9 @@ export class Cinematic {
     if (beat.caption) {
       ctx.save();
       ctx.globalAlpha = fade;
-      ctx.font = `800 ${Math.round(Math.min(32, width * 0.034))}px ${CANVAS_FONT_STACK}`;
+      // Floors matter more than ceilings here: width * 0.034 is 12px on a
+      // phone, which is unreadable. The min() still caps it on a wide kiosk.
+      ctx.font = `800 ${Math.round(clamp(width * 0.034, 18, 32))}px ${CANVAS_FONT_STACK}`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillStyle = "#eafff5";
@@ -505,9 +507,10 @@ export class Cinematic {
     }
 
     if (beat.line) {
-      const fontPx = Math.round(Math.min(22, width * 0.023));
-      const boxW = Math.min(width * 0.86, 900);
-      const padX = 20;
+      // Same again: 0.023 of a 375px phone is 8.6px. Floor it.
+      const fontPx = Math.round(clamp(width * 0.023, 15, 22));
+      const boxW = Math.min(width * 0.94, 900);
+      const padX = fontPx < 18 ? 14 : 20;
       const nameH = Math.round(fontPx * 1.5);
 
       // Wrap first, then size the box to the wrapped result — a long line on
@@ -561,7 +564,7 @@ export class Cinematic {
     ctx.textBaseline = "alphabetic";
     if (holds) {
       ctx.globalAlpha = 0.45 + 0.35 * Math.sin(age * 3.4);
-      ctx.font = `700 13px ${CANVAS_FONT_STACK}`;
+      ctx.font = `700 ${width <= 700 ? 15 : 13}px ${CANVAS_FONT_STACK}`;
       ctx.fillStyle = "#7dffb3";
       ctx.fillText("TAP TO CONTINUE  ▸", width - 26, height - 22);
     } else {

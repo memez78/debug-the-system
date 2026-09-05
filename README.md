@@ -115,6 +115,33 @@ Inside `playing`, each question cycle is:
    only — nothing there is tappable and nothing there affects scoring. It
    draws *behind* the answer blocks so options stay readable.
 
+## Phones and tablets
+
+The booth kiosk is a wide screen and its layout is the reference — none of
+the responsive work below changes anything at desktop width. Below
+`PHONE_MAX_WIDTH_PX` (820, chosen to include a portrait tablet) the game
+switches to a narrow layout:
+
+- **Answer blocks stack one per row** and drift sideways only. The desktop
+  layout scatters them into columns of `width / count`, which on a 375px
+  phone is 125px against blocks up to 380px wide — they overlap before
+  anything has moved. Rows cannot overlap, and a block with no room to drift
+  simply sits still rather than juddering against the walls.
+- **Blocks and text shrink** (`ANSWER_BLOCK_PHONE`), and block width is
+  additionally capped to the viewport so a block can never be wider than the
+  screen it sits on.
+- **Canvas text has floors.** Cinematic subtitles are sized `width * 0.023`,
+  which is 8.6px on a phone. They are now clamped to a readable minimum; the
+  upper bound still governs on a wide screen, so the kiosk is unaffected.
+- **The mascot shrinks and draws behind the answer blocks.** It flies to
+  wherever you last touched, which on a phone is an answer — drawing it
+  underneath means it can never cover an option's text.
+- **The play field is measured, not assumed.** Elements marked
+  `data-hud-bottom` in the overlays report where the UI chrome ends, and the
+  canvas keeps answers below it. A fixed margin cannot work: the question
+  banner's height depends on how many lines the question wraps to, so a long
+  question would otherwise push its banner down over the answers.
+
 ## Sound
 
 Every sound is **synthesised at runtime** by [`game/sound.ts`](game/sound.ts)

@@ -9,7 +9,7 @@ import { ParallaxBackground } from "./background";
 import { CANVAS_FONT_STACK } from "./canvasFont";
 import { Cinematic } from "./cinematic";
 import { comboTier, comboTierColor, pointsForCombo } from "./combo";
-import { ANSWER_BLOCK_FONT_PX, ANSWER_BLOCK_HEIGHT, CONFIG } from "./config";
+import { CONFIG, PHONE_MAX_WIDTH_PX } from "./config";
 import { getEscalation } from "./escalation";
 import { Illusion } from "./illusion";
 import { Mascot } from "./mascot";
@@ -39,7 +39,11 @@ import type {
 import { clamp, clamp01 } from "./utils";
 
 const MONO_FONT = CANVAS_FONT_STACK;
-const ANSWER_FONT = `700 ${ANSWER_BLOCK_FONT_PX}px ${MONO_FONT}`;
+
+/** How long after a layout-changing event the HUD keeps being re-measured,
+ * ms. Must comfortably outlast React committing a new banner, and is shorter
+ * than CONFIG.QUESTION_READ_MS so it has settled before answers spawn. */
+const HUD_MEASURE_WINDOW_MS = 250;
 
 function computeTier(score: number): RewardTier {
   if (score >= CONFIG.BD10_SCORE_THRESHOLD) return "bd10";
@@ -103,6 +107,13 @@ export class GameEngine {
   private interludePlayed = false;
   private interludeStartedAt = 0;
   private camoIntensity = 0;
+  /** Distance from the top of the canvas to the bottom of the DOM HUD stack,
+   * measured rather than assumed — the question banner's height depends on
+   * how many lines the question wraps to, which no constant can predict. 0
+   * until the first successful measurement. */
+  private hudBottomPx = 0;
+  /** Engine time until which the HUD is re-measured every frame. */
+  private hudMeasureUntil = 0;
 
   private demoActive = false;
   private demoReadEndAt = 0;
@@ -217,6 +228,41 @@ export class GameEngine {
     document.removeEventListener("visibilitychange", this.onVisibilityChange);
   }
 
+  /** Re-measure the HUD for a short while from now. */
+  private markHudDirty(now: number): void {
+    this.hudMeasureUntil = now + HUD_MEASURE_WINDOW_MS;
+  }
+
+  /**
+   * Re-measures the HUD, but only during a short window after something that
+   * could change its height. Deliberately neither every frame nor exactly
+   * once:
+   *
+   *  - Every frame would force a layout inside the render loop.
+   *  - Exactly once is wrong, and was a real bug: the overlay is React, so
+   *    a new question's banner is not in the DOM on the frame the question
+   *    starts. Measuring then and stopping records the *previous* question's
+   *    height, which on a phone left the first answer block sitting under a
+   *    banner that had grown to three lines.
+   *
+   * So it re-reads for a window long enough to outlast React's commit, and
+   * stops. Answers do not spawn until CONFIG.QUESTION_READ_MS in, by which
+   * point the measurement has settled on the real height.
+   */
+  private measureHud(now: number): void {
+    if (now >= this.hudMeasureUntil || !this.canvas) return;
+    const marked = this.canvas.ownerDocument.querySelectorAll<HTMLElement>("[data-hud-bottom]");
+    if (marked.length === 0) return; // overlay not mounted yet; retry next frame
+    // Lowest edge of everything marked, not just the first — the attract
+    // screen marks both its headline block and its demo banner, and which of
+    // them sits lower depends on whether a demo is currently running.
+    let lowest = 0;
+    marked.forEach((el) => {
+      lowest = Math.max(lowest, el.getBoundingClientRect().bottom);
+    });
+    this.hudBottomPx = lowest - this.canvas.getBoundingClientRect().top;
+  }
+
   private handleResize(): void {
     if (!this.canvas || !this.ctx) return;
     const rect = this.canvas.getBoundingClientRect();
@@ -228,7 +274,9 @@ export class GameEngine {
     this.canvas.height = Math.round(this.height * dpr);
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.bg.resize(this.width, this.height);
+    this.mascot.setViewportWidth(this.width);
     this.mascot.setStation(this.width / 2, this.height - 78);
+    this.markHudDirty(this.engineNow);
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
@@ -285,8 +333,9 @@ export class GameEngine {
    * to a band that keeps its full sprite (and thruster flame) on-screen and
    * clear of the question banner up top. */
   private setMascotTarget(x: number, y: number): void {
-    const marginX = 70;
-    const topMargin = 195;
+    const phone = this.width <= PHONE_MAX_WIDTH_PX;
+    const marginX = phone ? 34 : 70;
+    const topMargin = phone ? 150 : 195;
     const bottomMargin = 20;
     this.mascot.setTarget(clamp(x, marginX, this.width - marginX), clamp(y, topMargin, this.height - bottomMargin));
   }
@@ -296,7 +345,7 @@ export class GameEngine {
       for (let i = this.answerBlocks.length - 1; i >= 0; i--) {
         const b = this.answerBlocks[i];
         const halfW = (b.width / 2) * 1.05;
-        const halfH = (ANSWER_BLOCK_HEIGHT / 2) * 1.15;
+        const halfH = (b.height / 2) * 1.15;
         if (Math.abs(x - b.x) <= halfW && Math.abs(y - b.y) <= halfH) {
           this.answerBlocks.splice(i, 1);
           this.resolveAnswer(b, this.engineNow, true);
@@ -378,10 +427,30 @@ export class GameEngine {
     // the demo gets a narrow strip low down; in-round the whole HUD stack
     // has to be cleared instead.
     const attract = this.phase === "attract";
+    const phone = this.width <= PHONE_MAX_WIDTH_PX;
+    // The HUD stack shrinks on a phone (its CSS is all clamp()/vw), so the
+    // reserved bands shrink with it. Keeping the desktop pixel margins here
+    // would leave a 667px-tall screen with barely a block's worth of field.
     // Attract stacks title → 10 BD → subtitle → demo banner in flow, so the
     // demo's answers have to start below all of it.
-    let bottom = attract ? Math.max(100, this.height * 0.15) : Math.max(190, this.height * 0.2);
-    let top = attract ? Math.max(300, this.height * 0.68) : Math.max(330, this.height * 0.34);
+    let bottom = attract
+      ? Math.max(phone ? 60 : 100, this.height * 0.15)
+      : Math.max(phone ? 80 : 190, this.height * (phone ? 0.1 : 0.2));
+    let top = attract
+      ? Math.max(phone ? 210 : 300, this.height * 0.68)
+      : Math.max(phone ? 175 : 330, this.height * (phone ? 0.24 : 0.34));
+
+    // Prefer the measured bottom of the DOM overlay over the estimate above.
+    // A banner grows with the question's line count, so a fixed margin is
+    // either wasteful on short questions or — worse — too small on long ones,
+    // which is how blocks end up drifting under the progress bar.
+    if (this.hudBottomPx > 0) {
+      const measured = this.hudBottomPx + (phone ? 10 : 16);
+      // In a round the HUD is a hard floor. On attract the estimate is a
+      // stylistic preference for keeping the demo low on a roomy screen, so
+      // the measurement is allowed to reclaim space when there is not enough.
+      top = attract ? Math.min(top, Math.max(measured, this.height * 0.34)) : Math.max(top, measured);
+    }
     // On a short window the reserved bands could swallow the whole field —
     // scale them back so there's always a usable strip left to play in.
     const maxReserved = this.height * 0.78;
@@ -488,6 +557,8 @@ export class GameEngine {
     this.readEndAt = now + CONFIG.QUESTION_READ_MS;
     this.answerBlocks = [];
     this.wrongTapsThisQuestion = 0;
+    // This question's banner may wrap to a different number of lines.
+    this.markHudDirty(now);
   }
 
   /** Round timer expired: the result is computed here exactly as before, but
@@ -623,7 +694,6 @@ export class GameEngine {
           esc.windowMs,
           esc.driftSpeed,
           now,
-          ANSWER_FONT,
           this.width,
           this.height,
           this.fieldBounds(),
@@ -673,6 +743,8 @@ export class GameEngine {
 
   private updateAttract(now: number, dtSec: number): void {
     if (!this.demoActive && now >= this.nextPhantomAt) {
+      // The demo banner appears and disappears, changing the overlay's height.
+      this.markHudDirty(now);
       this.currentQuestion = pickNextQuestion();
       this.questionPhase = "reading";
       this.demoActive = true;
@@ -690,7 +762,6 @@ export class GameEngine {
             CONFIG.PHANTOM_DEMO_WINDOW_MS,
             CONFIG.ANSWER_DRIFT_SPEED_START,
             now,
-            ANSWER_FONT,
             this.width,
             this.height,
             this.fieldBounds(),
@@ -777,6 +848,7 @@ export class GameEngine {
 
     this.bg.update(dtSec);
     this.mascot.update(dtSec);
+    this.measureHud(now);
     this.updateAmbientAudio();
     updateParticles(this.particles, dtSec);
     updateFloatingTexts(this.floatingTexts, dtSec);
@@ -859,6 +931,12 @@ export class GameEngine {
       drawPrizeNote(ctx, note.x, note.y, dropT, alpha, this.mascot.idleClock);
     }
 
+    // The mascot flies to wherever the player last pointed — which is, by
+    // definition, an answer block. Drawing it under the blocks means it can
+    // never sit on top of an option's text. It stays fully visible whenever
+    // it is not overlapping one, which is most of the time.
+    if (this.phase !== "result") this.mascot.draw(ctx);
+
     if (this.answerBlocks.length > 0 && this.currentQuestion) {
       const camo = this.phase === "playing" ? this.camoIntensity : 0;
       const blurred = camo > 0;
@@ -867,7 +945,7 @@ export class GameEngine {
         ctx.filter = `blur(${(camo * CONFIG.ESCALATION_BLUR_MAX_PX).toFixed(2)}px)`;
       }
       for (const b of this.answerBlocks) {
-        drawAnswerBlock(ctx, b, now, camo, ANSWER_FONT);
+        drawAnswerBlock(ctx, b, now, camo);
       }
       if (blurred) ctx.restore();
     }
@@ -877,14 +955,10 @@ export class GameEngine {
     }
 
     drawParticles(ctx, this.particles);
-    if (this.phase === "result") {
-      // On a win, pose the mascot celebrating, peeking up behind the top edge
-      // of the results card. On a loss, don't draw it at all (avoids a small
-      // static robot stranded in a corner).
-      if (this.resultWin) this.drawResultCelebration(ctx);
-    } else {
-      this.mascot.draw(ctx);
-    }
+    // On a win, pose the mascot celebrating, peeking up behind the top edge of
+    // the results card. On a loss, don't draw it at all (avoids a small static
+    // robot stranded in a corner).
+    if (this.phase === "result" && this.resultWin) this.drawResultCelebration(ctx);
     drawFloatingTexts(ctx, this.floatingTexts);
 
     ctx.restore();

@@ -40,6 +40,12 @@ export interface AnswerBlock {
   vx: number;
   vy: number;
   width: number;
+  /** Block size and text size are resolved once at spawn from the viewport
+   * (see blockMetrics) and carried on the block, so hit-testing, drifting
+   * and drawing all read the same numbers without threading a metrics
+   * object through every call. */
+  height: number;
+  fontPx: number;
   spawnedAt: number;
   expiresAt: number;
   /** Stable per-block seed driving deterministic flicker/jitter/wobble

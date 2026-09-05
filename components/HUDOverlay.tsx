@@ -47,7 +47,11 @@ export default function HUDOverlay({
         </div>
       </div>
 
-      <div className={styles.progressSlot}>
+      {/* data-hud-bottom marks the lowest edge of the HUD stack. The canvas
+          measures it to work out where answer blocks may start, so a long
+          question that wraps to three lines pushes the play field down
+          instead of having blocks drift underneath the progress bar. */}
+      <div className={styles.progressSlot} data-hud-bottom>
         <ProgressBar score={score} compact />
       </div>
 

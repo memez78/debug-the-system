@@ -13,7 +13,7 @@ interface Props {
 export default function AttractOverlay({ topScores, flashFact, questionText, questionPhase }: Props) {
   return (
     <div className={styles.overlay}>
-      <div className={styles.top}>
+      <div className={styles.top} data-hud-bottom>
         <h1 className={styles.title}>DEBUG THE SYSTEM</h1>
         <p className={styles.prizeLead}>CRACK THE SERVER · WIN</p>
         <p className={styles.prizeBig}>10 BD</p>
@@ -36,7 +36,7 @@ export default function AttractOverlay({ topScores, flashFact, questionText, que
       )}
 
       {questionText && (
-        <div className={styles.demoBanner}>
+        <div className={styles.demoBanner} data-hud-bottom>
           <QuestionBanner text={questionText} phase={questionPhase} compact />
         </div>
       )}

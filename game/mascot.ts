@@ -1,4 +1,4 @@
-import { CONFIG } from "./config";
+import { CONFIG, PHONE_MAX_WIDTH_PX } from "./config";
 import type { MascotAnim } from "./types";
 import { clamp, clamp01, lerp } from "./utils";
 
@@ -15,6 +15,10 @@ import { clamp, clamp01, lerp } from "./utils";
 
 const SPRITE_ASPECT = 192 / 256;
 const DISPLAY_HEIGHT = 170;
+/** Phone sizing. At the desktop height the robot covers most of a narrow
+ *  screen, and since it flies to wherever you last touched — which on a
+ *  phone is an answer block — it would sit on top of an answer constantly. */
+const DISPLAY_HEIGHT_PHONE = 112;
 
 export type SpriteKey = "idle" | "reach" | "celebrateA" | "celebrateB" | "panic" | "flinch";
 
@@ -31,6 +35,8 @@ export class Mascot {
   /** 0-1 thruster output, refreshed every update(). Drives both the drawn
    * flame and the thruster audio, so the two can never disagree. */
   flameIntensity = 0;
+  /** Drawn height in CSS px, resolved from the viewport on resize. */
+  private displayHeight = DISPLAY_HEIGHT;
   animAge = 0;
   animDuration = 0;
   reachTargetX = 0;
@@ -62,6 +68,11 @@ export class Mascot {
 
   /** Default position before any pointer input has happened yet (also
    * re-anchors on resize, but only until the player actually touches/moves). */
+  /** Picks the drawn size for a viewport width. Called on every resize. */
+  setViewportWidth(width: number): void {
+    this.displayHeight = width <= PHONE_MAX_WIDTH_PX ? DISPLAY_HEIGHT_PHONE : DISPLAY_HEIGHT;
+  }
+
   setStation(x: number, y: number): void {
     this.targetX = x;
     this.targetY = y;
@@ -170,7 +181,7 @@ export class Mascot {
     );
     const totalRotation = lean + tilt;
 
-    const displayHeight = DISPLAY_HEIGHT;
+    const displayHeight = this.displayHeight;
     const displayWidth = displayHeight * SPRITE_ASPECT;
 
     // rocket thruster flame — drawn in world space, unaffected by the
